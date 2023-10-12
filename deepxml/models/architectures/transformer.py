@@ -1,9 +1,11 @@
-from typing import Callable, Union, Tuple, NoReturn
+from typing import Optional, Callable, Union, Tuple, NoReturn, Any
 
+import re
 import torch
 from sentence_transformers import SentenceTransformer
 from torch import Tensor
 from transformers import PreTrainedModel
+from operator import itemgetter
 
 
 class BaseTransformer(torch.nn.Module):
@@ -25,7 +27,7 @@ class BaseTransformer(torch.nn.Module):
             transformer: Union[str, SentenceTransformer, PreTrainedModel],
             pooler: Union[str, None],
             normalize: bool,
-            **kwargs: dict):
+            **kwargs: Optional[Any]):
         super(BaseTransformer, self).__init__()
         self.transform, self.pooler, self.normalize = self.construct(
             transformer, pooler, normalize, **kwargs)
@@ -37,7 +39,7 @@ class BaseTransformer(torch.nn.Module):
             transformer: Union[str, SentenceTransformer, PreTrainedModel],
             pooler: Union[str, None],
             normalize: bool,
-            **kwargs) -> NoReturn:
+            **kwargs: Optional[Any]) -> NoReturn:
         """
         Construct the transformer and the pooler
         """
@@ -57,7 +59,7 @@ class BaseTransformer(torch.nn.Module):
         ids, mask = x
         return self.normalize(self.pooler(self.transform(ids, mask), mask))
 
-    def forward(self, x) -> Tensor:
+    def forward(self, x: Tuple[Tensor, Tensor]) -> Tensor:
         """Forward pass to encode text based on input ids and attention mask
 
         Args:
@@ -82,13 +84,19 @@ class BaseTransformer(torch.nn.Module):
         else:
             return lambda x : x
 
-    def construct_transformer(self, *args, **kwargs: dict) -> NoReturn:
+    def construct_transformer(
+            self,
+            *args: Optional[Any],
+            **kwargs: Optional[Any]) -> NoReturn:
         """
         Construct the transformer
         """
         raise NotImplementedError("")
 
-    def construct_pooler(self, *args, **kwargs: dict) -> NoReturn:
+    def construct_pooler(
+            self,
+            *args: Optional[Any],
+            **kwargs: Optional[Any]) -> Callable:
         """
         Construct pooler to reduce output of Transformer layers
         """
@@ -121,3 +129,60 @@ class BaseTransformer(torch.nn.Module):
         return f"V: {self._vocabulary}; D: {self.repr_dims}; Normalize: {self._normalize}; Pooler: {self._pooler}"
 
 
+class STransformer(BaseTransformer):
+    """Create Transformers using Sentence Bert Library
+        * Use default pooler of trained model (yields better results)
+        * Use HTransformer if you want to customize pooler
+        * mean pooler is equivalent to using mean_pooling on 
+        HTransformer's last_hidden_state followed by an optional normalize layer
+
+
+    Args:
+        transformer (Optional[Union[str, SentenceTransformer]], optional):
+            transformer string or object 
+            * Defaults to 'bert-base-uncased'.
+        normalize (Optional[bool], optional): normalize output? 
+            Defaults to False.
+    """
+    def __init__(
+            self,
+            transformer: Optional[Union[str, SentenceTransformer]]='bert-base-uncased',
+            normalize: Optional[bool]=False,
+            **kwargs: Optional[Any]):
+        super(STransformer, self).__init__(transformer, None, normalize)
+
+    def construct_transformer(
+            self,
+            transformer: Union[str, SentenceTransformer],
+            **kwargs: Optional[Any]) -> SentenceTransformer:
+        if isinstance(transformer, str):
+            return SentenceTransformer(transformer)
+        else:
+            return transformer
+
+    def encode(self, x: Tuple[Tensor, Tensor]) -> Tensor:
+        """Forward pass to encode text based on input ids and attention mask
+
+        Args:
+            x (Tuple[Tensor, Tensor]): input ids and attention mask
+
+        Returns:
+            Tensor: encoded text
+        """
+        ids, mask = x
+        out = self.transform({'input_ids': ids, 'attention_mask': mask})
+        return self.normalize(out['sentence_embedding'])
+
+    @property
+    def repr_dims(self) -> int:
+        return self.transform[1].word_embedding_dimension
+
+    @property
+    def _pooler(self) -> dict:
+        keys = [x for x in self.transform[1].__dict__['config_keys']\
+             if re.match("pooling*", x)]        
+        return dict(zip(keys, itemgetter(*keys)(self.transform[1].__dict__)))
+
+    @property
+    def _vocabulary(self) -> int:
+        return self.transform[0].vocab_size
