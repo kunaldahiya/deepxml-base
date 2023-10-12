@@ -2,39 +2,34 @@ from typing import Optional, Callable
 
 import torch.nn as nn
 from torch import Tensor, LongTensor
-from .embedding_layer import Embedding
+from .embedding import Embedding
 
 
 class Astec(nn.Module):
-    """
-    Encode a document using the feature representaion as per Astec paper
-    (Bag-of-embedding followed by a non-linearity)
+    """Encode a document using the feature representaion as per Astec paper
+        (Bag-of-embedding followed by a non-linearity)
 
-    Arguments:
-    ----------
-    num_embeddings: int
-        vocalubary size
-    embedding_dim: int, optional (default=300)
-        dimension for embeddings
-    dropout: float, optional (default=0.5)
-        drop probability
-    padding_idx: int, optional (default=0)
-        index for <PAD>; embedding is not updated
-        Values other than 0 are not yet tested
-    reduction: str or None, optional (default=None)
-        * None: don't reduce
-        * sum: sum over tokens
-        * mean: mean over tokens
-    nnl: str or None, optional (default=None)
-        * None: linear 
-        * relu / gelu : non-linearity
-    sparse: boolean, optional (default=False)
-        sparse or dense gradients
-        * the optimizer will infer from this parameters
-    freeze_embeddings: boolean, optional (default=False)
-        * freeze the gradient of token embeddings
-    device: str, optional (default="cuda:0")
-        Keep embeddings on this device
+
+    Args:
+        vocabulary_dims (int): vocalubary size
+        embedding_dims (int, optional): dimension of embeddings. Defaults to 300
+        dropout (float, optional): drop probability. Defaults to 0.5.
+        padding_idx (int, optional): padding index. Defaults to 0.
+            * index for <PAD>; embedding is not updated
+            * Values other than 0 are not yet tested
+        reduction (Optional[str], optional): reduction. Defaults to 'sum'.
+            * None: don't reduce
+            * sum: sum over tokens
+            * mean: mean over tokens
+        nnl (Optional[str], optional): non linearity. Defaults to 'gelu'.
+            * None: linear 
+            * relu / gelu : non-linearity
+        sparse (bool, optional): sparse gradients? Defaults to True.
+            sparse or dense gradients
+            * the optimizer will infer from this parameters
+        freeze (bool, optional): freeze parameters? Defaults to False.
+            * freeze the gradient of token embeddings
+        device (str, optional): Keep embeddings on device. Defaults to "cuda".
     """
     def __init__(
             self,

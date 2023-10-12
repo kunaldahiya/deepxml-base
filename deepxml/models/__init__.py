@@ -1,2 +1,2 @@
 from .architectures.astec import Astec
-from .architectures.embedding_layer import Embedding
+from .architectures.embedding import Embedding

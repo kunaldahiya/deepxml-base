@@ -8,39 +8,33 @@ import torch.nn.functional as F
 
 
 class Embedding(nn.Module):
-    """
-    General way to handle embeddings
+    """General way to handle embeddings
 
     * Support for sequential models
     * Memory efficient way to compute weighted EmbeddingBag
 
-    Arguments:
-    ----------
-    num_embeddings: int
-        vocalubary size
-    embedding_dim: int
-        dimension for embeddings
-    padding_idx: 0 or None, optional (default=None)
-        index for <PAD>; embedding is not updated
-    max_norm: None or float, optional (default=None)
-        maintain norm of embeddings
-    norm_type: int, optional (default=2)
-        norm for max_norm
-    scale_grad_by_freq: boolean, optional (default=False)
-        Scale gradients by token frequency
-    sparse: boolean, optional (default=False)
-        sparse or dense gradients
-        * the optimizer will infer from this parameters
-    reduction: str or None, optional (default=None)
-        * None: don't reduce
-        * sum: sum over tokens
-        * mean: mean over tokens
-    pretrained_weights: torch.Tensor or None, optional (default=None)
-        Initialize with these weights
-        * first token is treated as a padding index
-        * dim=1 should be one less than the num_embeddings
-    device: str, optional (default="cuda:0")
-        Keep embeddings on this device
+    Args:
+        vocabulary_dims (int): vocalubary size        
+        embedding_dims (int, optional): dimension of embeddings. Defaults to 300
+        padding_idx (int, optional): padding index. Defaults to 0.
+            * index for <PAD>; embedding is not updated
+            * Values other than 0 are not yet tested
+        max_norm (Optional[float], optional): control norm. Defaults to None.
+            Constrain norm to this value 
+        norm_type (int, optional): norm type in max_norm. Defaults to 2.
+        scale_grad_by_freq (bool, optional): scale gradients. Defaults to False.
+        sparse (bool, optional): sparse gradients? Defaults to True.
+            sparse or dense gradients
+            * the optimizer will infer from this parameters
+        reduction (bool, optional): reduction function. Defaults to True.
+            * None: don't reduce
+            * sum: sum over tokens
+            * mean: mean over tokens
+        pretrained_weights (bool, optional): _description_. Defaults to None.
+            Initialize with these weights
+            * first token is treated as a padding index
+            * dim=1 should be one less than the num_embeddings
+        device (str, optional): Keep embeddings on device. Defaults to "cuda".
     """
 
     def __init__(
@@ -109,24 +103,19 @@ class Embedding(nn.Module):
         return x
 
     def forward(self, x: LongTensor, w: Optional[Tensor] = None) -> Tensor:
-        """
-        Forward pass for embedding layer
+        """Forward pass for embedding layer
 
-        Arguments:
-        ---------
-        x: torch.LongTensor
-            indices of tokens in a batch
-            (batch_size, max_features_in_a_batch)
-        w: torch.Tensor or None, optional (default=None)
-            weights of tokens in a batch
-            (batch_size, max_features_in_a_batch)
+        Args:
+            x (LongTensor): indices of tokens in a batch
+                shape: (batch_size, max_features_in_a_batch)
+            w (Optional[Tensor], optional): weights of tokens. Defaults to None.
+                shape: (batch_size, max_features_in_a_batch)
 
         Returns:
-        --------
-        out: torch.Tensor
-            embedding for each sample
-            Shape: (batch_size, seq_len, embedding_dims), if reduction is None
-            Shape: (batch_size, embedding_dims), otherwise
+            Tensor: embedding for each sample
+                Shape: (batch_size, seq_len, embedding_dims), if reduction is None
+                Shape: (batch_size, embedding_dims), otherwise
+
         """
         x = F.embedding(
             x, self.weight,
