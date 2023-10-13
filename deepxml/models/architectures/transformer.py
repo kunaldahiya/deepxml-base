@@ -1,11 +1,31 @@
-from typing import Optional, Callable, Union, Tuple, NoReturn, Any
+from typing import Optional, Callable, Union, Tuple, NoReturn, Any, List
 
 import re
 import torch
 from sentence_transformers import SentenceTransformer
 from torch import Tensor
-from transformers import PreTrainedModel
+from transformers import AutoModel, AutoConfig, PreTrainedModel
+from functools import partial
 from operator import itemgetter
+
+
+def mean_pooling(emb: Tensor, mask: Tensor) -> Tensor:
+    """Mean pooling to get the sentence embeddings
+
+    Args:
+        emb (Tensor): Final embeddings from a transformer layer
+            shape (batch_size, seq_len, embedding_dim)
+        mask (Tensor): To mask out padded values
+            (batch_size, seq_len)
+
+    Returns:
+        Tensor: mean pooled sentence representation 
+            (batch_size, embedding_dim)
+    """
+    mask = mask.unsqueeze(-1).expand(emb.size()).float()
+    sum_emb = torch.sum(emb * mask, 1)
+    sum_mask = torch.clamp(mask.sum(1), min=1e-9)
+    return sum_emb / sum_mask
 
 
 class BaseTransformer(torch.nn.Module):
@@ -186,3 +206,115 @@ class STransformer(BaseTransformer):
     @property
     def _vocabulary(self) -> int:
         return self.transform[0].vocab_size
+
+
+class HTransformer(BaseTransformer):
+    """Create Transformers using Huggingface library. Support for:
+     * custom pooling
+     * concatenation of layers
+    
+    Args:
+        transformer (Optional[Union[str, PreTrainedModel]], optional): 
+            transformer from Huggingface. Defaults to 'bert-base-uncased'.
+        normalize (Optional[bool], optional): return normalized outputs 
+            or as it is. Defaults to False.
+        pooler (Optional[str], optional): pooling function. Defaults to None.
+            method to reduce the output of transformer layers
+            * Support for mean, None (identity), concat and cls
+        c_layers (List[int], optional): concatenate rep. Defaults to [-1, -4].
+            concatenate these layers when pooler is concat (ignored otherwise)
+    """
+    def __init__(
+            self,
+            transformer: Optional[Union[str, PreTrainedModel]]='bert-base-uncased',
+            normalize: Optional[bool]=False,
+            pooler: Optional[str]=None,
+            c_layers: List[int]=[-1, -4]):
+        if pooler != "concat":
+            c_layers = None
+        super(HTransformer, self).__init__(
+            transformer, pooler, normalize, c_layers=c_layers)
+        self._c_layers = c_layers
+
+    def construct_transformer(
+            self,
+            transformer: Union[str, PreTrainedModel],
+            c_layers: List[int]) -> PreTrainedModel:
+        """Construct transformer
+
+        Args:
+            transformer (Union[str, PreTrainedModel]): transformer (name or object)
+            c_layers (List[int]): layers to concatenate
+
+        Returns:
+            PreTrainedModel: Transformer object
+        """
+        output_hidden_states = True if isinstance(c_layers, list) else True
+        if isinstance(transformer, str):
+            config = AutoConfig.from_pretrained(
+                transformer, 
+                output_hidden_states=output_hidden_states)
+            return AutoModel.from_pretrained(transformer, config=config)
+        else:
+            return transformer
+
+    def encode(self, x: Tuple[Tensor, Tensor]) -> Tensor:
+        """Encode text based on input ids and attention mask
+
+        Args:
+            x (Tuple[Tensor, Tensor]): input ids and attention mask
+
+        Returns:
+            Tensor: encoded text
+        """
+        ids, mask = x
+        out = self.transform(input_ids=ids, attention_mask= mask)
+        return self.normalize(self.pooler(out, mask))
+
+    def construct_pooler(self, pooler: str, c_layers: List[int]) -> Callable:
+        """Construct function to reduce or pool
+
+        Args:
+            pooler (str): pooling name
+            c_layers (List[int]): layers to concatenate 
+                (valid only when pooler is concat)
+
+        Returns:
+            Callable: pooling function
+        """
+        if pooler is None:
+                return lambda x, _: x['last_hidden_state']
+        elif pooler == 'concat':
+            assert isinstance(c_layers, list), "list is expected for concat"
+            def f(x: Tensor, m: Tensor, c_l: List[int]) -> Tensor:
+                r = []
+                for l in c_l:
+                    r.append(
+                        mean_pooling(x['hidden_states'][l], m))
+                return torch.hstack(r)
+            return partial(f, c_l=c_layers)
+        elif pooler == 'mean':
+            def f(x: Tensor, m: Tensor) -> Tensor:
+                return mean_pooling(x['last_hidden_state'], m)
+            return f
+        elif pooler == 'cls':
+            def f(x: Tensor, *args) -> Tensor:
+                return x['last_hidden_state'][:, 0]
+            return f
+        else:
+            print(f'Unknown pooler type encountered: {pooler}')
+
+    @property
+    def repr_dims(self) -> int:
+        """
+        The dimensionality of output/embedding space
+        """
+        d = self.transform.embeddings.word_embeddings.embedding_dim
+        if self._pooler == "concat":
+            return d * len(self._c_layers) 
+        else:
+            return d
+
+    @property
+    def config(self):
+        return self.transform.config
