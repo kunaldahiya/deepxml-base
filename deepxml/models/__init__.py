@@ -2,3 +2,5 @@ from .architectures.astec import Astec
 from .architectures.embedding import Embedding
 from .architectures.transformer import STransformer
 from .architectures.transformer import HTransformer
+from .linear import UNSparseLinear, UNSSparseLinear
+from .linear import Linear, SparseLinear, SharedSparseLinear
