@@ -4,8 +4,6 @@ from torch import Tensor, LongTensor
 import torch.nn.functional as F
 from torch.nn.parameter import Parameter
 
-__author__ = 'KD'
-
 
 class Linear(nn.Module):
     """Linear layer
@@ -107,7 +105,7 @@ class SparseLinear(Linear):
             bias=bias,
             device=device)
 
-    def forward(self, embed: Tensor, shortlist: LongTensor) -> Tensor: 
+    def forward(self, input: Tensor, shortlist: LongTensor) -> Tensor: 
         """Forward pass with input feature and per label shortlist
             * sparse gradients
             * assumes a per-document shortlist of labels is available
@@ -122,13 +120,13 @@ class SparseLinear(Linear):
             Tensor: score for each label in shortlist for each document
                 shape (batch size, shortlist size)
         """
-        embed = embed.to(self.device)
+        input = input.to(self.device)
         shortlist = shortlist.to(self.device)
         short_weights = F.embedding(shortlist,
                                     self.weight,
                                     sparse=self.sparse,
                                     padding_idx=self.padding_idx)
-        out = torch.matmul(embed.unsqueeze(1), short_weights.permute(0, 2, 1))
+        out = torch.matmul(input.unsqueeze(1), short_weights.permute(0, 2, 1))
         if self.bias is not None:
             short_bias = F.embedding(shortlist,
                                      self.bias,
@@ -199,7 +197,7 @@ class SharedSparseLinear(Linear):
             bias=bias,
             device=device)
 
-    def forward(self, embed: Tensor, shortlist: LongTensor) -> Tensor:
+    def forward(self, input: Tensor, shortlist: LongTensor) -> Tensor:
         """Forward pass with input feature and per label shortlist
             * sparse gradients
             * assumes a shared shortlist is available for 
@@ -215,13 +213,13 @@ class SharedSparseLinear(Linear):
             Tensor: score for each document label pair
                 shape (batch size, shortlist size)
         """
-        embed = embed.to(self.device)
+        input = input.to(self.device)
         shortlist = shortlist.to(self.device)
         short_weights = F.embedding(shortlist,
                                     self.weight,
                                     sparse=self.sparse,
                                     padding_idx=self.padding_idx)
-        out = embed @ short_weights.T
+        out = input @ short_weights.T
         if self.bias is not None:
             short_bias = F.embedding(shortlist,
                                      self.bias,
@@ -291,7 +289,7 @@ class UNSparseLinear(SparseLinear):
             bias=False,
             device=device)
 
-    def forward(self, embed: Tensor, shortlist: LongTensor) -> Tensor: 
+    def forward(self, input: Tensor, shortlist: LongTensor) -> Tensor: 
         """Forward pass with input feature and per label shortlist
             * sparse gradients
             * assumes a per-document shortlist of labels is available
@@ -307,15 +305,15 @@ class UNSparseLinear(SparseLinear):
             Tensor: score for each label in shortlist for each document
                 shape (batch size, shortlist size)
         """
-        embed = F.normalize(embed.to(self.device), dim=1)
+        input = F.normalize(input.to(self.device), dim=1)
         shortlist = shortlist.to(self.device)
         short_weights = F.embedding(shortlist,
                                     self.weight,
                                     sparse=self.sparse,
                                     padding_idx=self.padding_idx)
         short_weights = F.normalize(short_weights, dim=2)
-        out = torch.matmul(embed.unsqueeze(1), short_weights.permute(0, 2, 1))
-        return out.squeeze()
+        return torch.matmul(
+            input.unsqueeze(1), short_weights.permute(0, 2, 1)).squeeze()
  
 
 class UNSSparseLinear(SparseLinear):
@@ -346,7 +344,7 @@ class UNSSparseLinear(SparseLinear):
             bias=False,
             device=device)
 
-    def forward(self, embed: Tensor, shortlist: LongTensor) -> Tensor:
+    def forward(self, input: Tensor, shortlist: LongTensor) -> Tensor:
         """Forward pass with input feature and per label shortlist
             * sparse gradients
             * assumes a shared shortlist is available for 
@@ -367,8 +365,7 @@ class UNSSparseLinear(SparseLinear):
                                     self.weight,
                                     sparse=self.sparse,
                                     padding_idx=self.padding_idx)
-        out = F.normalize(embed, dim=-1) @ F.normalize(short_weights, dim=-1).T
-        return out
+        return F.normalize(input, dim=-1) @ F.normalize(short_weights, dim=-1).T
  
     @property
     def sparse(self) -> bool:
