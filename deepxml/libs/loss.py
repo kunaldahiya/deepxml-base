@@ -7,15 +7,15 @@ import torch.nn.functional as F
 
 class _Loss(torch.nn.Module):
     """Base class for loss functions
-        * Standard loss functions can also be used
-        * Support for custom reduction 
+      * Standard loss functions can also be used
+      * Support for custom reduction 
           and masking which can be helpful in XC setup 
     
     Args:
         reduction (str, optional): reduction for loss. Defaults to 'mean'.
-            * 'none': no reduction will be applied
-            * 'mean' or 'sum': mean or sum of loss terms
-            * 'custom': sum across labels and mean across data points
+          * 'none': no reduction will be applied
+          * 'mean' or 'sum': mean or sum of loss terms
+          * 'custom': sum across labels and mean across data points
         pad_ind (Optional[int], optional): padding index. Defaults to None.
           * ignore loss at this index (useful in 1-vs-all setting)
     """
@@ -90,9 +90,9 @@ class HingeLoss(_Loss):
     Args:
         margin (float, optional): the margin in hinge loss. Defaults to 1.0.
         reduction (str, optional): reduction for loss. Defaults to 'mean'.
-            * 'none': no reduction will be applied
-            * 'mean' or 'sum': mean or sum of loss terms
-            * 'custom': sum across labels and mean across data points
+          * 'none': no reduction will be applied
+          * 'mean' or 'sum': mean or sum of loss terms
+          * 'custom': sum across labels and mean across data points
         pad_ind (Optional[int], optional): padding index. Defaults to None.
           * ignore loss at this index (useful in 1-vs-all setting)
     """
@@ -137,9 +137,9 @@ class SquaredHingeLoss(_Loss):
     Args:
         margin (float, optional): the margin in hinge loss. Defaults to 1.0.
         reduction (str, optional): reduction for loss. Defaults to 'mean'.
-            * 'none': no reduction will be applied
-            * 'mean' or 'sum': mean or sum of loss terms
-            * 'custom': sum across labels and mean across data points
+          * 'none': no reduction will be applied
+          * 'mean' or 'sum': mean or sum of loss terms
+          * 'custom': sum across labels and mean across data points
         pad_ind (Optional[int], optional): padding index. Defaults to None.
           * ignore loss at this index (useful in 1-vs-all setting)
     """
@@ -174,6 +174,59 @@ class SquaredHingeLoss(_Loss):
         """
         loss = F.relu(self.margin - _convert_labels_for_svm(target)*input)
         loss = loss**2
+        loss = self._mask_at_pad(loss)
+        loss = self._mask(loss, mask)
+        return self._reduce(loss)
+
+
+class BCEWithLogitsLoss(_Loss):
+    """BCE loss (expects logits; numercial stable)
+    This loss combines a `Sigmoid` layer and the `BCELoss` in one single
+    class. This version is more numerically stable than using a plain `Sigmoid`
+    followed by a `BCELoss` as, by combining the operations into one layer,
+    we take advantage of the log-sum-exp trick for numerical stability.
+
+    Args:
+        weight: (Tensor, optional), optional. Defaults to None.
+          a manual rescaling weight given to the loss of each batch element.
+          If given, has to be a Tensor of size batch_size
+        reduction (str, optional): reduction for loss. Defaults to 'mean'.
+          * 'none': no reduction will be applied
+          * 'mean' or 'sum': mean or sum of loss terms
+          * 'custom': sum across labels and mean across data points
+        pos_weight: (Optional[Tensor], optional): weight of positives. Defaults to None.
+          it must be a vector with length equal to the number of classes.
+        pad_ind (Optional[int], optional): padding index. Defaults to None.
+          * ignore loss at this index (useful in 1-vs-all setting)
+    """
+    __constants__ = ['weight', 'pos_weight', 'reduction']
+
+    def __init__(self, weight=None, reduction='mean',
+                 pos_weight=None, pad_ind=None):
+        super(BCEWithLogitsLoss, self).__init__(reduction, pad_ind)
+        self.register_buffer('weight', weight)
+        self.register_buffer('pos_weight', pos_weight)
+
+    def forward(self, input, target, mask=None):
+        """Forward pass
+
+        Args:
+            input (Tensor): real number pred matrix of 
+              size: batch_size x output_size
+            target (Tensor): ground truth tensor
+              0/1 ground truth matrix of size: batch_size x output_size
+              * it'll automatically convert to +1/-1 as required by hinge loss
+            mask: torch.BoolTensor or None, optional (default=None)
+              ignore entries [won't contribute to loss] where mask value is zero
+
+        Returns:
+            Tensor: computed loss
+              dimension is defined based on reduction
+        """
+        loss = F.binary_cross_entropy_with_logits(input, target,
+                                                  self.weight,
+                                                  pos_weight=self.pos_weight,
+                                                  reduction='none')
         loss = self._mask_at_pad(loss)
         loss = self._mask(loss, mask)
         return self._reduce(loss)
