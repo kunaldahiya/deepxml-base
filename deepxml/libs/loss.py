@@ -2,7 +2,7 @@ from typing import Optional
 
 import torch
 from torch import Tensor
-
+import torch.nn.functional as F
 
 
 class _Loss(torch.nn.Module):
@@ -12,8 +12,10 @@ class _Loss(torch.nn.Module):
           and masking which can be helpful in XC setup 
     
     Args:
-        reduction (str, optional): reduce using this function. Defaults to 'mean'.
-          * 'mean' or 'none' or 'sum' or 'custom'
+        reduction (str, optional): reduction for loss. Defaults to 'mean'.
+            * 'none': no reduction will be applied
+            * 'mean' or 'sum': mean or sum of loss terms
+            * 'custom': sum across labels and mean across data points
         pad_ind (Optional[int], optional): padding index. Defaults to None.
           * ignore loss at this index (useful in 1-vs-all setting)
     """
@@ -72,3 +74,106 @@ class _Loss(torch.nn.Module):
         if mask is not None:
             loss = loss.masked_fill(~mask, 0.0)
         return loss
+
+
+def _convert_labels_for_svm(y: Tensor) -> Tensor:
+    """
+        Convert labels from {0, 1} to {-1, 1}
+    """
+    return 2.*y - 1.0
+
+
+class HingeLoss(_Loss):
+    """Hinge loss
+    * it'll automatically convert target to +1/-1 as required by hinge loss
+
+    Args:
+        margin (float, optional): the margin in hinge loss. Defaults to 1.0.
+        reduction (str, optional): reduction for loss. Defaults to 'mean'.
+            * 'none': no reduction will be applied
+            * 'mean' or 'sum': mean or sum of loss terms
+            * 'custom': sum across labels and mean across data points
+        pad_ind (Optional[int], optional): padding index. Defaults to None.
+          * ignore loss at this index (useful in 1-vs-all setting)
+    """
+    def __init__(
+            self,
+            margin: float=1.0,
+            reduction: str='mean',
+            pad_ind: Optional[int]=None) -> None:
+        super(HingeLoss, self).__init__(reduction, pad_ind)
+        self.margin = margin
+
+    def forward(
+            self,
+            input: Tensor,
+            target: Tensor,
+            mask: Optional[Tensor]=None) -> Tensor:
+        """Forward pass
+
+        Args:
+            input (Tensor): real number pred matrix of 
+              size: batch_size x output_size
+            target (Tensor): ground truth tensor
+              0/1 ground truth matrix of size: batch_size x output_size
+              * it'll automatically convert to +1/-1 as required by hinge loss
+            mask: torch.BoolTensor or None, optional (default=None)
+              ignore entries [won't contribute to loss] where mask value is zero
+
+        Returns:
+            Tensor: computed loss
+              dimension is defined based on reduction
+        """
+        loss = F.relu(self.margin - _convert_labels_for_svm(target)*input)
+        loss = self._mask_at_pad(loss)
+        loss = self._mask(loss, mask)
+        return self._reduce(loss)
+
+
+class SquaredHingeLoss(_Loss):
+    """Squared Hinge loss
+    * it'll automatically convert target to +1/-1 as required by hinge loss
+
+    Args:
+        margin (float, optional): the margin in hinge loss. Defaults to 1.0.
+        reduction (str, optional): reduction for loss. Defaults to 'mean'.
+            * 'none': no reduction will be applied
+            * 'mean' or 'sum': mean or sum of loss terms
+            * 'custom': sum across labels and mean across data points
+        pad_ind (Optional[int], optional): padding index. Defaults to None.
+          * ignore loss at this index (useful in 1-vs-all setting)
+    """
+
+    def __init__(
+            self,
+            margin: float=1.0,
+            reduction: str='mean',
+            pad_ind: Optional[int]=None) -> None:
+        super(SquaredHingeLoss, self).__init__(reduction, pad_ind)
+        self.margin = margin
+
+    def forward(
+            self,
+            input: Tensor,
+            target: Tensor,
+            mask: Optional[Tensor]=None) -> Tensor:
+        """Forward pass
+
+        Args:
+            input (Tensor): real number pred matrix of 
+              size: batch_size x output_size
+            target (Tensor): ground truth tensor
+              0/1 ground truth matrix of size: batch_size x output_size
+              * it'll automatically convert to +1/-1 as required by hinge loss
+            mask: torch.BoolTensor or None, optional (default=None)
+              ignore entries [won't contribute to loss] where mask value is zero
+
+        Returns:
+            Tensor: computed loss
+              dimension is defined based on reduction
+        """
+        loss = F.relu(self.margin - _convert_labels_for_svm(target)*input)
+        loss = loss**2
+        loss = self._mask_at_pad(loss)
+        loss = self._mask(loss, mask)
+        return self._reduce(loss)
