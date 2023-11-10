@@ -1,4 +1,4 @@
-from typing import Optional, Callable
+from typing import Optional, Callable, Any
 
 import torch
 import torch.nn as nn
@@ -99,7 +99,7 @@ class Embedding(nn.Module):
         else:
             return torch.mean(x * w.unsqueeze(2), dim=1)
 
-    def _reduce(self, x, *args):
+    def _reduce(self, x: Tensor, *args: Optional[Any]) -> Tensor:
         return x
 
     def forward(self, x: LongTensor, w: Optional[Tensor] = None) -> Tensor:

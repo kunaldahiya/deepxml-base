@@ -4,7 +4,131 @@ from numpy import ndarray
 from xclib.data import FeaturesBase
 
 import torch
+import numpy as np
 from .features import construct as construct_f
+from .labels import construct as construct_l
+
+
+class DatasetBase(torch.utils.data.Dataset):
+    """Dataset to load and use XML-Datasets
+
+    Args:
+        data_dir (str): data directory
+        f_features (str): file containing features
+            Support for sparse, dense and sequential features
+        f_labels (str): file containing labels
+            Support for sparse or dense
+            * sparse will return just the positives
+            * dense will return all the labels as a dense array
+        f_label_features (Optional[str], optional): file containing label features.
+          Defaults to None. Support for sparse, dense and sequential features
+        data (dict, optional): preloaded features and labels.
+          Defaults to {'X': None, 'Y': None, 'Yf': None}.
+        mode (str, optional): train or test. Defaults to 'train'.
+          may be useful in cases where different things are applied 
+          to train or test set
+        normalize_features (bool, optional): unit normalize? Defaults to True.
+        normalize_lables (bool, optional): inf normalize? Defaults to False.
+        feature_type (str, optional): feature type. Defaults to 'sparse'.
+        label_type (str, optional): label type. Defaults to 'dense'.
+        max_len (int, optional): max length. Defaults to -1.
+    """
+    def __init__(self,
+                 data_dir: str,
+                 f_features: str,
+                 f_labels: str,
+                 f_label_features: Optional[str]=None,
+                 data: dict={'X': None, 'Y': None, 'Yf': None},
+                 mode: str='train',
+                 normalize_features: bool=True,
+                 normalize_lables: bool=False,
+                 feature_type: str='sparse',
+                 label_type: str='dense',
+                 max_len: int=-1,
+                 *args: Optional[Any],
+                 **kwargs: Optional[Any]) -> None:
+        if data is None:
+            data = {'X': None, 'Y': None, 'Yf': None}
+        self.mode = mode
+        self.features, self.labels, self.label_features = self.load_data(
+            data_dir,
+            f_features,
+            f_labels,
+            data,
+            normalize_features,
+            normalize_lables,
+            feature_type,
+            label_type,
+            f_label_features,
+            max_len)
+        self.label_padding_index = self.num_labels
+
+    def load_features(self, data_dir, fname, X,
+                      normalize_features, feature_type, max_len):
+        """Load features from given file
+        Features can also be supplied directly
+        """
+        return construct_f(data_dir, fname, X,
+                           normalize_features,
+                           feature_type, max_len)
+
+    def load_labels(self, data_dir, fname, Y, normalize_labels, label_type):
+        """Load labels from given file
+        Labels can also be supplied directly
+        """
+        return construct_l(data_dir, fname, Y, normalize_labels,
+                             label_type)  # Pass dummy labels if required
+
+    def load_data(self, data_dir, f_features, f_labels, data,
+                  normalize_features=True, normalize_labels=False,
+                  feature_type='sparse', label_type='dense',
+                  f_label_features=None, max_len=32):
+        """Load features and labels from file in libsvm format or pickle
+        """
+        features = self.load_features(
+            data_dir, f_features, data['X'],
+            normalize_features, feature_type, max_len)
+        labels = self.load_labels(
+            data_dir, f_labels, data['Y'], normalize_labels, label_type)
+        label_features = None
+        if f_label_features is not None or data["Yf"] is not None:
+            label_features = self.load_features(
+                data_dir, f_label_features, data['Yf'],
+                normalize_features, feature_type, max_len)
+        return features, labels, label_features
+
+    @property
+    def num_instances(self):
+        return self.features.num_instances
+
+    @property
+    def num_features(self):
+        return self.features.num_features
+
+    @property
+    def num_labels(self):
+        return self.labels.num_labels
+
+    def get_stats(self):
+        """Get dataset statistics
+        """
+        return self.num_instances, self.num_features, self.num_labels
+
+    def __len__(self):
+        return self.num_instances
+
+    @property
+    def feature_type(self):
+        return self.features._type
+
+    def __getitem__(self, index):
+        """Get features and labels for index
+        Arguments
+        ---------
+        index: int
+            data for this index
+        """
+        raise NotImplementedError("")
 
 
 class Dataset(torch.utils.data.Dataset):
