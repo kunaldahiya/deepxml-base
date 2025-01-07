@@ -1,7 +1,7 @@
 from typing import Optional, Any, Union, Tuple
 from scipy.sparse import spmatrix
 from numpy import ndarray
-from xclib.data import FeaturesBase
+from xclib.data.features import FeaturesBase
 
 import os
 import numpy as np
