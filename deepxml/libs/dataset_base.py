@@ -1,12 +1,30 @@
 from typing import Optional, Any, Union, Tuple
 from scipy.sparse import spmatrix
 from numpy import ndarray
-from xclib.data import FeaturesBase
+from xclib.data.features import FeaturesBase
+from dataclasses import dataclass
 
 import torch
 import numpy as np
 from .features import construct as construct_f
 from .labels import construct as construct_l
+
+
+@dataclass
+class DataPoint:
+    """
+    DataPoint class represents a single data point in a dataset.
+
+    Attributes:
+        index (int): The index of the data point.
+        x (torch.Tensor): The input features of the data point.
+        y (Optional[Union[np.ndarray, Tuple]]): The target labels of the data point. Default is None.
+        yf (Optional[Union[np.ndarray, Tuple]]): Additional target labels or features. Default is None.
+    """
+    index: int
+    x: torch.Tensor
+    y: Optional[Union[np.ndarray, Tuple]]=None
+    yf: Optional[Union[np.ndarray, Tuple]]=None
 
 
 class DatasetBase(torch.utils.data.Dataset):
@@ -121,7 +139,7 @@ class DatasetBase(torch.utils.data.Dataset):
     def feature_type(self):
         return self.features._type
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> DataPoint:
         """Get features and labels for index
         Arguments
         ---------
@@ -245,12 +263,12 @@ class DatasetTensor(torch.utils.data.Dataset):
     def num_instances(self) -> int:
         return self.data.num_instances
 
-    def __getitem__(self, index: int) -> Tuple:
+    def __getitem__(self, index: int) -> DataPoint:
         """Get data for a given index
-        Returns a tuple with features and index
+        Returns a DataPoint instance with features and index
         features can be:
         * ndarray in case of dense features
         * tuple of indices and weights in case of sparse features
         * tuple of indices and masks in case of sequential features
         """
-        return (self.data[index], index)
+        return DataPoint(x=self.data[index], index=index)
