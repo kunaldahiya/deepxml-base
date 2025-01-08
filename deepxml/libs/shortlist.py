@@ -1,9 +1,9 @@
 from typing import List
 from numpy import ndarray
-from xclib.utils.ann import ClusteringIndex
+from xclib.utils.ann import ClusteringIndex as _ClusteringIndex
 
 
-class ClusteringIndexIS(ClusteringIndex):
+class ClusteringIndex(_ClusteringIndex):
     """Clustering Index suitable for:
     - when we just need the items in a clusters while quering
     - it is constantly updated (maintains a state with step and num_clusters)
