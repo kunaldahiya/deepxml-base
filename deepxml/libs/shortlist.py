@@ -1,6 +1,71 @@
 from typing import List
 from numpy import ndarray
 from xclib.utils.ann import ClusteringIndex as _ClusteringIndex
+from xclib.utils.shortlist import Shortlist as _Shortlist
+
+
+class ANNIndex(_Shortlist):
+    """Clustering Index suitable for:
+    - when we just need the items in a clusters while quering
+    - it is constantly updated (maintains a state with step and num_clusters)
+    - Useful for in-batch sampling or ngame sampling
+
+    Args:
+        num_instances (int): number of items to cluster
+        num_clusters (int): create these many clusters
+        num_threads (int): number of threads to use while clustering
+        curr_steps (List[int]): increase complexity at these steps
+    """
+    def __init__(
+            self,
+            num_items: int,
+            method: str='hnswlib', 
+            num_neighbours=100, 
+            M: int=50, 
+            efC: int=50, 
+            num_threads: int=12, 
+            space: str='cosine') -> None:
+        super().__init__(
+            method=method,
+            efS=num_neighbours,
+            num_neighbours=num_neighbours,
+            M=M,
+            efC=efC,
+            num_threads=num_threads,
+            space=space)
+        self.ind, self.sim = None, None
+        self.num_items = num_items
+
+
+    def _init(self) -> None:
+        """Each item is an cluster in itself
+        """
+        pass
+
+    def update_state(self) -> None:
+        pass
+
+    def update(self, X: ndarray) -> None:
+        """Update the index based on given representations
+
+        Args:
+            X (ndarray): item embeddings
+            num_clusters (int, optional): cluster into these many clusters.
+              Defaults to None.
+              - the num_clusters argument will override the stored value
+        """
+        # TODO: Memory requirements for large datasets 
+        # Keep indices and similarity as memmap file?
+        self.fit(X)
+        self.ind, self.sim = super().query(X)
+
+    def query(self, index: int) -> tuple:
+        return self.ind[index], self.sim[index]
+
+    def __getitem__(self, index: int) -> tuple:
+        # TODO: Fix it when the index is not initialized
+        # Return random?
+        return self.ind[index], self.sim[index]
 
 
 class ClusteringIndex(_ClusteringIndex):
@@ -22,7 +87,6 @@ class ClusteringIndex(_ClusteringIndex):
             num_threads: int,
             curr_steps: List[int],
             space: str='cosine') -> None:
-        self.num_items = num_items
         super().__init__(
             num_clusters,
             efS=-1,
@@ -30,6 +94,7 @@ class ClusteringIndex(_ClusteringIndex):
             num_threads=num_threads,
             space=space)
         self.curr_steps = curr_steps
+        self.num_items = num_items
         self.step = 0
 
     def update_state(self) -> None:
