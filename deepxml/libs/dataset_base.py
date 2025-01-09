@@ -24,7 +24,9 @@ class DataPoint:
     index: int
     x: torch.Tensor
     y: Optional[Union[np.ndarray, Tuple]]=None
+    y_neg: Optional[Union[np.ndarray, Tuple]]=None
     yf: Optional[Union[np.ndarray, Tuple]]=None
+    yf_neg: Optional[Union[np.ndarray, Tuple]]=None
 
 
 class DatasetBase(torch.utils.data.Dataset):
@@ -208,7 +210,7 @@ class DatasetSampling(DatasetBase):
     def construct_sampler(self, sampling_params):
         return None
 
-    def indices_permutation(self):
+    def indices_permutation(self) -> ndarray:
         return np.random.permutation(len(self.features))
 
 
