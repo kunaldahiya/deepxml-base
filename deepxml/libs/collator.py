@@ -2,11 +2,12 @@ from torch import Tensor, tensortype
 from numpy import ndarray
 from typing import Iterator, Callable
 
-
-import numpy as np
 import torch
-from torch.nn.utils.rnn import pad_sequence
+import numpy as np
+from functools import partial
 from .datapoint import DataPoint
+from scipy.sparse import csr_matrix
+from torch.nn.utils.rnn import pad_sequence
 
 
 def clip_batch_lengths(ind: Tensor, mask: Tensor, max_len: int=1024) -> tuple:
@@ -20,6 +21,8 @@ def clip_batch_lengths(ind: Tensor, mask: Tensor, max_len: int=1024) -> tuple:
     Returns:
         tuple: Clipped ind and mask
     """
+    if max_len == -1:
+        return ind, mask
     _max = min(torch.max(torch.sum(mask, dim=1)), max_len)
     return ind[:, :_max], mask[:, :_max]
 
@@ -114,16 +117,83 @@ def collate_sparse(batch: Iterator) -> dict:
     raise NotImplementedError("")
 
 
-def collate_sequential(batch: Iterator) -> dict:
-    raise NotImplementedError("")
+def collate_sequential(batch: Iterator[tuple], max_len) -> tuple:
+    """Collate sequential features with indices and mask
+    * Expects a Iterator over tuples of ind and mask
+    * Must be of same length 
+    * TODO: Implement padding
+
+    Args:
+        batch (Iterator[tuple]): Iterator over tuples of ind and mask
+
+    Returns:
+        tuple: _description_
+    """
+    x = list(x)
+    indices = collate_dense(map(lambda z: z[0], batch), dtype=torch.LongTensor)
+    mask = collate_dense(map(lambda z: z[1], batch), dtype=torch.LongTensor)
+    return clip_batch_lengths(indices, mask, max_len)
 
 
-def collate_brute(batch: Iterator):
+def collate_brute(batch: Iterator[ndarray]) -> tuple:
+    """Collate over iterator of dense/brute labels (all labels are considered)
+
+    Args:
+        batch (Iterator[ndarray]): an iterator over relevance vectors
+            * Each vector is of length as number of labels
+
+    Returns:
+        tuple: collated data
+    """
     return collate_dense(batch), None, None
 
 
-def collate_implicit(batch: Iterator):
-    raise NotADirectoryError("")
+def collate_implicit(batch: Iterator) -> tuple:
+    """Collate labels over iterator for implicit samling (no negatives)
+
+    Args:
+        batch (Iterator): an iterator over positives. It can be over: 
+            * ndarrays: will consider all the labels 
+              useful where positives are not sampled 
+            * tupe of ndarray: (sampled positives, all_positives) 
+              - useful when positives are sampled to save on memory and compute
+              - the sampled labels will be considered for label pool and all 
+                labels will only be used to avoid False Negatives
+    Returns:
+        tuple: collated data
+    """
+    lens = []
+    lens_sampled = []
+    batch_labels = []
+    sampled_pos_indices = []
+    l_max = -1
+    for item in batch:
+        #TODO: See if there is a more efficient way to do it
+        if isinstance(item, tuple):
+            _s, _a = item
+        else:
+            _s = _a = item
+        l_max = max(l_max, max(_a))
+        lens.append(len(_a))
+        batch_labels.append(_a)
+        lens_sampled.append(len(_s))
+        sampled_pos_indices.append(_s)
+
+    batch_size = len(batch_labels)
+
+
+    rows = np.repeat(range(batch_size), lens)
+    cols = np.concatenate(batch_labels, axis=None)
+    data = np.ones((len(rows), ), dtype='bool')
+    A = csr_matrix((data, (rows, cols)), shape=(batch_size, l_max))
+
+    cols = np.concatenate(sampled_pos_indices, axis=None)
+    rows = np.arange(len(cols))
+    data = np.ones((len(rows), ), dtype='bool')
+    B = csr_matrix((data, (cols, rows)), shape=(l_max, len(cols)))
+
+    batch_selection = (A @ B).toarray().astype('float32')
+    return torch.from_numpy(batch_selection), torch.LongTensor(cols), None
 
 
 class collate():
@@ -134,7 +204,8 @@ class collate():
             self, 
             in_feature_t: str = 'sequential', 
             sampling_t: str = 'implicit', 
-            op_feature_t: str = None) -> None:
+            op_feature_t: str = None,
+            max_len: int = -1) -> None:
         """
         Args:
             in_feature_t (str, optional): feature type of input items. 
@@ -151,10 +222,13 @@ class collate():
                 * dense: dense features. Such as pre-computed features.
                 * sparse: sparse features. Indices and weights  
                 * sequential: Sequential features
+            max_len (str, int): Clips sequential features. Defaults to -1.
+                * No action if it is -1
             """
         self.collate_ip_features = self.construct_feature_collator(in_feature_t)
         self.collate_op_features = self.construct_feature_collator(op_feature_t)
         self.collate_labels = self.construct_label_collator(sampling_t)
+        self.max_len = max_len
 
     def construct_feature_collator(self, _type: str) -> Callable:
         if _type == "dense":
@@ -162,7 +236,7 @@ class collate():
         elif _type == "sparse":
             return collate_sparse
         elif _type == "sequential":
-            return collate_sequential
+            return partial(collate_sequential, max_len=self.max_len)
         else:
             return None
 
