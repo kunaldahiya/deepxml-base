@@ -2,31 +2,13 @@ from typing import Optional, Any, Union, Tuple
 from scipy.sparse import spmatrix
 from numpy import ndarray
 from xclib.data.features import FeaturesBase
-from dataclasses import dataclass
 
 import torch
 import numpy as np
 from .features import construct as construct_f
 from .labels import construct as construct_l
+from .datapoint import DataPoint
 
-
-@dataclass
-class DataPoint:
-    """
-    DataPoint class represents a single data point in a dataset.
-
-    Attributes:
-        index (int): The index of the data point.
-        x (torch.Tensor): The input features of the data point.
-        y (Optional[Union[np.ndarray, Tuple]]): The target labels of the data point. Default is None.
-        yf (Optional[Union[np.ndarray, Tuple]]): Additional target labels or features. Default is None.
-    """
-    index: int
-    x: torch.Tensor
-    y: Optional[Union[np.ndarray, Tuple]]=None
-    y_neg: Optional[Union[np.ndarray, Tuple]]=None
-    yf: Optional[Union[np.ndarray, Tuple]]=None
-    yf_neg: Optional[Union[np.ndarray, Tuple]]=None
 
 
 class DatasetBase(torch.utils.data.Dataset):
