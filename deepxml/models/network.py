@@ -1,5 +1,6 @@
 from typing import Union
-from torch import Module, Tensor
+from torch import Tensor
+from torch.nn import Module
 
 import os
 import math
@@ -39,18 +40,85 @@ class BaseNetwork(Module):
     the vector to the appropriate device
     """
 
-    def __init__(self, config: str, device="cuda") -> None:
+    def __init__(
+            self, 
+            config: str, 
+            encoder: Module=None, 
+            classifier: Module=None, 
+            device="cuda") -> None:
         """
         Args:
             config (str): json file containing the network components
+            encoder (Module or None): encoder module
+                - to encode given (raw) representation
+            classifier (Module or None): Classifier module 
+                - can be identity or None if required
             device (str, optional): device for network. Defaults to "cuda".
         """
         super(BaseNetwork, self).__init__()
-        self.encoder = self._construct_module(None)
-        self.classifier = self._construct_classifier(None)
         self.device = torch.device(device)
+        if config is not None:
+            self._construct_from_config(config)
+        elif encoder is not None:
+            self._construct_from_module(encoder, classifier)
+        else:
+            raise NotImplementedError(
+                "Either of modules or config must be valid")
 
-    def _construct_classifier(self) -> Module:
+    def _construct_from_module(
+            self, 
+            encoder: Module, 
+            classifier: Module, 
+        ) -> Module:
+        self.encoder = encoder
+        self.classifier = classifier
+
+    def _construct_from_config(self, config: str, device: str="cuda") -> Module:
+        """Construct the class from config
+
+        Args:
+            config (str): a json file consisting the archietcture
+            device (str, optional): device for model. Defaults to "cuda".
+
+        Returns:
+            Module: class instance
+        """
+        self.encoder = self._construct_module(config)
+        self.classifier = self._construct_classifier(config)
+
+    @classmethod
+    def from_config(cls, config: str, device: str="cuda") -> Module:
+        """Construct the class from config
+
+        Args:
+            config (str): a json file consisting the archietcture
+            device (str, optional): device for model. Defaults to "cuda".
+
+        Returns:
+            Module: class instance
+        """
+        return cls(config=config, device=device)
+
+    @classmethod
+    def from_modules(
+        cls, 
+        encoder: Module, 
+        classifier: Module, 
+        device: str="cuda") -> Module:
+        """Construct the class from already constructed modules
+        * useful when encoder and classifiers are already constructed
+
+        Args:
+            encoder (Module): To encode given (raw) representation
+            classifier (Module): Classifier module (can be identity if required)
+            device (str, optional): device for model. Defaults to "cuda".
+
+        Returns:
+            Module: class instance
+        """
+        return cls(None, encoder, classifier, device=device)
+
+    def _construct_classifier(self, *args, **kwargs) -> Module:
         return nn.Identity()
 
     def _construct_module(self, config: str=None) -> Module:
@@ -92,8 +160,7 @@ class BaseNetwork(Module):
         Returns:
             torch.Tensor: output of the network (typically logits)
         """
-
-        return self.classifier(self.encode(batch['X'], batch['X_ind']))
+        return self.classifier(self.encode(batch['X']))
 
     def initialize(self) -> None:
         """Initialize embeddings from existing ones"""
@@ -131,4 +198,4 @@ class BaseNetwork(Module):
         return self.num_params * 4 / math.pow(2, 20)
 
     def __repr__(self):
-        return f"{self.encoder}\n(Transform): {self.classifier}"
+        return f"{self.encoder}\n(Classifier): {self.classifier}"
