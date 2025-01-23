@@ -1,4 +1,4 @@
-from torch import Tensor, tensortype
+from torch import Tensor, dtype
 from numpy import ndarray
 from typing import Iterator, Callable
 
@@ -30,7 +30,7 @@ def clip_batch_lengths(ind: Tensor, mask: Tensor, max_len: int=1024) -> tuple:
 def pad_and_collate(
         x: Iterator[ndarray], 
         pad_val: int=0, 
-        dtype: tensortype=torch.FloatTensor) -> Tensor:
+        dtype: dtype=torch.float) -> Tensor:
     """A generalized function for padding batch using utils.rnn.pad_sequence
     * pad as per the maximum length in the batch
     * returns a collated tensor
@@ -40,8 +40,8 @@ def pad_and_collate(
             tensors and padded
         pad_val (int, optional): pad tensor with this value. Defaults to 0.
             will cast the value as per the data type
-        dtype (tensortype, optional): tensor should be of this type. 
-            Defaults to torch.FloatTensor.
+        dtype (dtype, optional): tensor should be of this type. 
+            Defaults to torch.float.
 
     Returns:
         Tensor: a padded and collated tensor
@@ -52,13 +52,14 @@ def pad_and_collate(
 
 def collate_dense(
         x: Iterator[ndarray], 
-        dtype: tensortype=torch.FloatTensor) -> Tensor:
+        dtype: dtype=torch.float) -> Tensor:
     """Collate dense arrays
 
     Args:
         x (Iterator[ndarray]): iterator over np.ndarray that needs to be converted to
             tensors
-        dtype (tensortype, optional): Output type. Defaults to torch.FloatTensor.
+        dtype (dtype, optional): tensor should be of this type. 
+            Defaults to torch.float.
 
     Returns:
         Tensor: Collated dense tensor
@@ -66,12 +67,12 @@ def collate_dense(
     return torch.stack([torch.from_numpy(z) for z in x], 0).type(dtype)
 
 
-def collate_as_1d(x: Iterator, dtype: tensortype) -> Tensor:
+def collate_as_1d(x: Iterator, dtype: dtype) -> Tensor:
     """Collate and return a 1D tensor
 
     Args:
         x (Iterator): iterator over numbers 
-        dtype (tensortype): datatype
+        dtype (dtype): data type
 
     Returns:
         Tensor: Collated 1D tensor
@@ -113,8 +114,23 @@ def get_iterator(x: Iterator[DataPoint], key: str=None) -> Iterator:
         return map(lambda z: getattr(z, key), x)
 
 
-def collate_sparse(batch: Iterator) -> dict:
-    raise NotImplementedError("")
+def collate_sparse(
+        batch: Iterator,
+        pad_ind=0,
+        pad_val=0,
+        dtype_ind=torch.int,
+        dtype_val=torch.float) -> dict:
+    
+    batch = list(batch)
+    indices = pad_and_collate(
+        map(lambda z: z[0], batch), 
+        pad_ind,
+        dtype_ind)
+    weights = pad_and_collate(
+        map(lambda z: z[1], batch),
+        pad_val,
+        dtype_val)
+    return weights, indices
 
 
 def collate_sequential(batch: Iterator[tuple], max_len) -> tuple:
@@ -130,8 +146,8 @@ def collate_sequential(batch: Iterator[tuple], max_len) -> tuple:
         tuple: _description_
     """
     x = list(x)
-    indices = collate_dense(map(lambda z: z[0], batch), dtype=torch.LongTensor)
-    mask = collate_dense(map(lambda z: z[1], batch), dtype=torch.LongTensor)
+    indices = collate_dense(map(lambda z: z[0], batch), dtype=torch.float)
+    mask = collate_dense(map(lambda z: z[1], batch), dtype=torch.float)
     return clip_batch_lengths(indices, mask, max_len)
 
 
@@ -240,10 +256,7 @@ class collate():
         else:
             return None
 
-    def construct_label_collator(self, classifier_t, sampling_t) -> Callable:
-        if classifier_t is None:
-            return None
-
+    def construct_label_collator(self, sampling_t) -> Callable:
         if sampling_t == 'implicit':
             return collate_implicit
         elif sampling_t == 'explicit':
