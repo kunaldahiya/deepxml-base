@@ -1,6 +1,6 @@
 from typing import Optional, Callable
 
-from ..linear import Linear
+from ._linear import _Linear
 from ..utils import (
     ip_sim_3d,
     cosine_sim_3d,
@@ -10,7 +10,7 @@ from torch import Tensor, LongTensor
 import torch.nn.functional as F
 
 
-class OVA(Linear): 
+class OVA(_Linear): 
     """A brute-force classifier (all labels are considered for each datapoint)
 
     Args:
@@ -25,7 +25,7 @@ class OVA(Linear):
             output_size: int,
             bias: bool = True,
             metric: str = "ip",
-            device: str = "cuda") -> None:
+            device: str = None) -> None:
         super(OVA, self).__init__(
             input_size=input_size,
             output_size=output_size,
@@ -51,17 +51,17 @@ class OVA(Linear):
         Returns:
             Tensor: transformed tensor
         """
-        return self.similarity(input.to(self.device), self.weight, self.bias)
+        return self.similarity(input, self.weight, self.bias)
 
 
-class OVS(Linear): 
+class OVS(_Linear): 
     """A 1-vs-some classifier (each point will be provided a shortlist)
 
     Args:
         input_size (int): input size of transformation
         output_size (int): output size of transformation
         bias (bool, optional): use bias term. Defaults to True.
-        device (str, optional): device. Defaults to "cuda".
+        device (str or None, optional): device. Defaults to None.
     """
     def __init__(
             self,
@@ -70,7 +70,7 @@ class OVS(Linear):
             padding_idx: Optional[int] = None,
             bias: bool = True,
             metric: str = "ip",
-            device: str = "cuda") -> None:
+            device: str = None) -> None:
         self.padding_idx = padding_idx
         self.metric = metric
         super(OVA, self).__init__(
@@ -103,8 +103,6 @@ class OVS(Linear):
             Tensor: score for each label in shortlist for each document
                 shape (batch size, shortlist size)
         """
-        input = input.to(self.device)
-        shortlist = shortlist.to(self.device)
         _weights = F.embedding(shortlist,
                                     self.weight,
                                     sparse=self.sparse,
@@ -114,7 +112,7 @@ class OVS(Linear):
                                      self.bias,
                                      sparse=self.sparse,
                                      padding_idx=self.padding_idx)
-        return self.similarity(input.to(self.device), _weights, _bias)
+        return self.similarity(input, _weights, _bias)
 
     def reset_parameters(self) -> None:
         """Initialize weights vectors
@@ -135,14 +133,14 @@ class OVS(Linear):
         return True
 
 
-class OVSS(Linear): 
+class OVSS(_Linear): 
     """A 1-vs-some classifier (each point will share a common shortlist)
 
     Args:
         input_size (int): input size of transformation
         output_size (int): output size of transformation
         bias (bool, optional): use bias term. Defaults to True.
-        device (str, optional): device. Defaults to "cuda".
+        device (str or None, optional): device. Defaults to None.
     """
     def __init__(
             self,
@@ -151,7 +149,7 @@ class OVSS(Linear):
             padding_idx: Optional[int] = None,
             bias: bool = True,
             metric: str = "ip",
-            device: str = "cuda") -> None:
+            device: str = None) -> None:
         self.padding_idx = padding_idx
         self.metric = metric
         super(OVSS, self).__init__(
@@ -185,8 +183,6 @@ class OVSS(Linear):
             Tensor: score for each document label pair
                 shape (batch size, shortlist size)
         """
-        input = input.to(self.device)
-        shortlist = shortlist.to(self.device)
         _weights = F.embedding(shortlist,
                                     self.weight,
                                     sparse=self.sparse,
