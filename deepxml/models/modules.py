@@ -1,111 +1,34 @@
 import re
 import json
 import torch.nn as nn
-from .layers.residual import Residual
-from .architectures.astec import Astec
-from .architectures.transformer import STransformer 
+from ._modules import ELEMENTS
 
 
-class _Identity(nn.Module):
-    def __init__(self, *args, **kwargs):
-        super(_Identity, self).__init__()
-
-    def forward(self, x):
-        # useful when x_ind is None
-        x, x_ind = x
-        return x
-
-    def initialize(self, *args, **kwargs):
-        pass
-
-
-elements = {
-    'dropout': nn.Dropout,
-    'batchnorm1d': nn.BatchNorm1d,
-    'linear': nn.Linear,
-    'relu': nn.ReLU,
-    'gelu': nn.GELU,
-    'residual': Residual,
-    '_residual': Residual,
-    'identity': nn.Identity,
-    '_identity': _Identity,
-    'astec': Astec,
-    'stransformer': STransformer
-}
-
-
-def fetch_json(file, ARGS):
+def parse_json(file, ARGS):
     with open(file, encoding='utf-8') as f:
         file = ''.join(f.readlines())
         schema = resolve_schema_args(file, ARGS)
+    # The documentation says that it preserves order (3.6+)
     return json.loads(schema)
 
 
-def get_functions(obj):
-    return list(map(lambda x: elements[x](**obj[x]), obj['order']))
+def _construct_module(key, args):
+    # TODO: Check for extendibility
+    try:
+        return ELEMENTS[key](**args)
+    except KeyError:
+        raise NotImplementedError("Unknown module!!")
 
 
-class cModule(nn.Module):
-    """
-    Transform document representation!
-    transform_string: string for sequential pipeline
-        eg relu#,dropout#p:0.1,residual#input_size:300-output_size:300
-    params: dictionary like object for default params
-        eg {emb_size:300}
-    """
-
-    def __init__(self, config, device="cuda"):
-        super(cModule, self).__init__()
-        self.device = device
-        modules = get_functions(config)
-        if len(modules) == 1:
-            self.transform = modules[0]
-        else:
-            self.transform = nn.Sequential(*modules)
-
-    def forward(self, x):
-        """
-            Forward pass for transform layer
-            Args:
-                x: torch.Tensor: document representation
-            Returns:
-                x: torch.Tensor: transformed document representation
-        """
-        return self.encode(x)
-
-    def encode(self, x):
-        return self.transform(x)
-
-    def _initialize(self, x):
-        """Initialize parameters from existing ones
-        Typically for word embeddings
-        """
-        if isinstance(self.transform, nn.Sequential):
-            self.transform[0].initialize(x)
-        else:
-            self.transform.initialize(x)
-
-    def initialize(self, x):
-        # Currently implemented for:
-        #  * initializing first module of nn.Sequential
-        #  * initializing module
-        self._initialize(x)
-
-    def to(self):
-        super().to(self.device)
-
-    @property
-    def representation_dims(self):
-        # TODO: Hardcoded for now; compute it
-        return -1
-
-    @property
-    def sparse(self):
-        try:
-            _sparse = self.transform.sparse
-        except AttributeError:
-            _sparse = False
-        return _sparse
+def construct_module(config):
+    if len(config) == 0:
+        return _construct_module('identity', {})
+    elif len(config) == 1:
+        k, v = next(iter(config.items()))
+        return _construct_module(k, v)
+    else:
+        modules = [_construct_module(k, v) for k, v in config.items()] 
+        return nn.Sequential(*modules)
 
 
 def resolve_schema_args(jfile, ARGS):

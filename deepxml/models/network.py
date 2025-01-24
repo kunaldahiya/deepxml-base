@@ -6,8 +6,9 @@ import os
 import math
 import torch
 import torch.nn as nn
+from argparse import Namespace
 import torch.nn.functional as F
-from .modules import cModule
+from .modules import parse_json, construct_module
 
 
 def _to_device(
@@ -43,12 +44,15 @@ class BaseNetwork(Module):
     def __init__(
             self, 
             config: str, 
+            args: Namespace=Namespace(),
             encoder: Module=None, 
             classifier: Module=None, 
             device="cuda") -> None:
         """
         Args:
             config (str): json file containing the network components
+            args (Namespace): Values of placeholders can be taken from args
+                * "#ARGS.x;" value in config will be replaced with args.x
             encoder (Module or None): encoder module
                 - to encode given (raw) representation
             classifier (Module or None): Classifier module 
@@ -58,7 +62,7 @@ class BaseNetwork(Module):
         super(BaseNetwork, self).__init__()
         self.device = torch.device(device)
         if config is not None:
-            self._construct_from_config(config)
+            self._construct_from_config(parse_json(config, args))
         elif encoder is not None:
             self._construct_from_module(encoder, classifier)
         else:
@@ -73,7 +77,10 @@ class BaseNetwork(Module):
         self.encoder = encoder
         self.classifier = classifier
 
-    def _construct_from_config(self, config: str, device: str="cuda") -> Module:
+    def _construct_from_config(
+            self, 
+            config: dict, 
+            device: str="cuda") -> Module:
         """Construct the class from config
 
         Args:
@@ -83,11 +90,25 @@ class BaseNetwork(Module):
         Returns:
             Module: class instance
         """
-        self.encoder = self._construct_module(config)
-        self.classifier = self._construct_classifier(config)
+        self.encoder = self._construct_encoder(config['encoder'])
+        self.classifier = self._construct_classifier(config['classifier'])
+
+    def _construct_encoder(self, config: dict) -> Module:
+        # Construct encoder from dictionary
+        # (useful in case you want to do some custom stuff)
+        return self._construct_module(config)
+
+    def _construct_classifier(self, config: dict) -> Module:
+        # Construct classifier from dictionary
+        # (useful in case you want to do some custom stuff)
+        return self._construct_module(config)
 
     @classmethod
-    def from_config(cls, config: str, device: str="cuda") -> Module:
+    def from_config(
+        cls,
+        config: str,
+        args:Namespace=Namespace(),
+        device: str="cuda") -> Module:
         """Construct the class from config
 
         Args:
@@ -97,7 +118,7 @@ class BaseNetwork(Module):
         Returns:
             Module: class instance
         """
-        return cls(config=config, device=device)
+        return cls(config=config, args=args, device=device)
 
     @classmethod
     def from_modules(
@@ -118,13 +139,10 @@ class BaseNetwork(Module):
         """
         return cls(None, encoder, classifier, device=device)
 
-    def _construct_classifier(self, *args, **kwargs) -> Module:
-        return nn.Identity()
-
-    def _construct_module(self, config: str=None) -> Module:
+    def _construct_module(self, config: str=dict) -> Module:
         if config is None:
             return nn.Identity()
-        return cModule(config)
+        return construct_module(config)
 
     @property
     def representation_dims(self) -> int:
