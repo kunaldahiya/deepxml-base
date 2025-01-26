@@ -237,6 +237,32 @@ class ModelBase(object):
     def evaluate(self, _true: spmatrix, _pred: spmatrix):
         return self.evaluater(_true, _pred)
 
+    def validate(
+            self,
+            data_loader: DataLoader,
+            epoch:int=-1,
+    ) -> None:
+        """
+        Validate for the given data loader
+
+        Arguments
+        ---------
+        validation_loader: DataLoader or None
+            data loader over validation dataset
+        epoch (int): used in saving checkpoint
+        """
+        tic = time.time()
+        predicted_labels, val_avg_loss = self._validate(data_loader)
+        toc = time.time()
+        _prec = self.evaluate(
+            data_loader.dataset.labels.Y, predicted_labels)
+        self.logger.info("Model saved after epoch: {}".format(epoch))
+        self.save_checkpoint(self.model_dir, epoch+1)
+        self.tracking.last_saved_epoch = epoch
+        self.logger.info(
+            f"{_prec.summary()}, loss: {val_avg_loss:.6f}, "\
+            f"time: {toc-tic:.2f} sec")
+
     def _fit(
         self,
         train_loader: DataLoader,
@@ -268,19 +294,7 @@ class ModelBase(object):
             self.logger.info(
                 f"Epoch: {epoch}, loss: {avg_loss:.6f}, time: {toc-tic:.2f} sec")
             if validation_loader is not None and epoch % validation_interval == 0:
-                tic = time.time()
-                predicted_labels, val_avg_loss = self._validate(
-                    validation_loader)
-                toc = time.time()
-                _prec = self.evaluate(
-                    validation_loader.dataset.labels.Y, predicted_labels)
-                self.logger.info("Model saved after epoch: {}".format(epoch))
-                self.save_checkpoint(self.model_dir, epoch+1)
-                self.tracking.last_saved_epoch = epoch
-                self.logger.info(
-                    f"{_prec.summary()}, loss: {val_avg_loss:.6f}, "\
-                    f"time: {toc-tic:.2f} sec")
-            self.tracking.last_epoch += 1
+                self.validate(validation_loader, epoch)
         self.save_checkpoint(self.model_dir, epoch+1)
 
     @torch.no_grad()
