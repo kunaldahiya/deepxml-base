@@ -34,7 +34,7 @@ def _to_device(
 
 
 class BaseNetwork(Module):
-    """DeepXMLBase: Base class for different networks
+    """BaseNetwork: Base class for different networks
     * Identity op as classifier by default
     (derived class should implement it's own classifier)
     * embedding and classifier shall automatically transfer
@@ -217,3 +217,30 @@ class BaseNetwork(Module):
 
     def __repr__(self):
         return f"{self.encoder}\n(Classifier): {self.classifier}"
+
+
+class XMLNetwork(BaseNetwork):
+    """
+    Class to train extreme classifiers in brute force manner
+    """
+    pass
+
+
+class XMLNetworkIS(BaseNetwork):
+    """
+    Class to train extreme classifiers with shared shortlist
+    """
+    def forward(self, batch, *args):
+        """Forward pass
+
+        * Assumes features are dense if X_w is None
+
+        Args:
+            batch (dict): A dictionary containing features or 
+                tokenized representation and shared label shortlist
+
+        Returns:
+            torch.Tensor: output of the network (typically logits)
+        """
+        X = self.encode(batch['X'])
+        return self.classifier(X, batch['Y_s']), X

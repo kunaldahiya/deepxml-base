@@ -1,5 +1,5 @@
 import torch
-from .classifiers.ova import OVA 
+from .classifiers.ova import OVA, OVSS
 from .layers.residual import Residual
 from .architectures.astec import Astec
 from .architectures.transformer import STransformer 
@@ -30,5 +30,6 @@ ELEMENTS = {
     '_identity': _Identity,
     'astec': Astec,
     'stransformer': STransformer,
-    'ova': OVA
+    'ova': OVA,
+    'ovss': OVSS
 }
