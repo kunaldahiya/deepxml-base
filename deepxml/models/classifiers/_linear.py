@@ -25,7 +25,7 @@ class _Linear(torch.nn.Linear):
         """
         _wts = self.weight.detach().cpu()
         if self.bias is not None:
-            _bias = self.bias.detach().cpu()
+            _bias = self.bias.detach().cpu().reshape(-1, 1)
             _wts = torch.hstack([_wts, _bias])
         return _wts
 

@@ -7,6 +7,7 @@ from ..utils import (
     ip_sim,
     cosine_sim)
 from torch import Tensor, LongTensor
+from torch.nn import Parameter
 import torch.nn.functional as F
 
 
@@ -122,11 +123,9 @@ class OVS(_Linear):
             self.weight.data[self.padding_idx].fill_(0)
 
     def get_weights(self) -> Tensor:
-        """Get weights as numpy array
-        Bias is appended in the end
+        """#TODO Handle padding
         """
-        _wts = super().get_weights()
-        return _wts[:-1, :]
+        return super().get_weights()
 
     @property
     def sparse(self) -> bool:
@@ -148,6 +147,7 @@ class OVSS(_Linear):
             output_size: int,
             padding_idx: Optional[int] = None,
             bias: bool = True,
+            sparse: bool = True,
             metric: str = "ip",
             device: str = None) -> None:
         self.padding_idx = padding_idx
@@ -157,7 +157,10 @@ class OVSS(_Linear):
             output_size=output_size,
             bias=bias,
             device=device)
+        if bias: # F.embeddings requires it to be a 2D Tensor
+            self.bias = Parameter(self.bias.data.reshape(-1, 1))
         self.similarity = self.construct_sim_func()
+        self._sparse = sparse 
 
     def construct_sim_func(self) -> Callable:
         if self.metric == 'ip':
@@ -184,14 +187,14 @@ class OVSS(_Linear):
                 shape (batch size, shortlist size)
         """
         _weights = F.embedding(shortlist,
-                                    self.weight,
-                                    sparse=self.sparse,
-                                    padding_idx=self.padding_idx)
+                               self.weight,
+                               sparse=self.sparse,
+                               padding_idx=self.padding_idx)
         if self.bias is not None:
             _bias = F.embedding(shortlist,
-                                     self.bias,
-                                     sparse=self.sparse,
-                                     padding_idx=self.padding_idx)
+                                self.bias,
+                                sparse=self.sparse,
+                                padding_idx=self.padding_idx)
         return self.similarity(input, _weights, _bias)
 
     def reset_parameters(self) -> None:
@@ -202,12 +205,10 @@ class OVSS(_Linear):
             self.weight.data[self.padding_idx].fill_(0)
 
     def get_weights(self) -> Tensor:
-        """Get weights as numpy array
-        Bias is appended in the end
+        """#TODO Handle padding
         """
-        _wts = super().get_weights()
-        return _wts[:-1, :]
+        return super().get_weights()
 
     @property
     def sparse(self) -> bool:
-        return True
+        return self._sparse
