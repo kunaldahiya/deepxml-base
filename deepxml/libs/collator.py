@@ -189,14 +189,14 @@ def collate_implicit(batch: Iterator) -> tuple:
             _s, _a = item
         else:
             _s = _a = item
-        l_max = max(l_max, max(_a))
+        l_max = max(l_max, max(_a, default=-1))
         lens.append(len(_a))
         batch_labels.append(_a)
         lens_sampled.append(len(_s))
         sampled_pos_indices.append(_s)
 
     batch_size = len(batch_labels)
-
+    l_max += 1 # indices start from zero
 
     rows = np.repeat(range(batch_size), lens)
     cols = np.concatenate(batch_labels, axis=None)
