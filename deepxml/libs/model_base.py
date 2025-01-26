@@ -24,14 +24,6 @@ from .evaluater import Evaluater
 
 class ModelBase(object):
     """Base class for Deep extreme multi-label learning
-
-    Args:
-        net (torch.nn.Module): network object
-        criterion (_Loss): object to compute loss
-        optimizer (Optimizer): Optimizer
-        schedular (LRScheduler): learning rate schedular
-        model_dir (str): directory to save model etc.
-        result_dir (str): directory to save results etc.
     """
     def __init__(self,
                  net: torch.nn.Module,
@@ -43,6 +35,16 @@ class ModelBase(object):
                  result_dir: str,
                  *args: Optional[Any],
                  **kwargs: Optional[Any]) -> None:
+        """ 
+        Args:
+            net (torch.nn.Module): network object
+            criterion (_Loss): object to compute loss
+            optimizer (Optimizer): Optimizer
+            schedular (LRScheduler): learning rate schedular
+            evaluater (Evaluater): to evaluate
+            model_dir (str): directory to save model etc.
+            result_dir (str): directory to save results etc.
+        """
         self.net = net
         self.criterion = criterion
         self.optimizer = optimizer
@@ -107,6 +109,7 @@ class ModelBase(object):
                 feature_type=feature_type,
                 normalize_features=normalize_features,
                 normalize_labels=normalize_labels,
+                **kwargs
             )
 
     def _create_data_loader(
@@ -204,10 +207,11 @@ class ModelBase(object):
         """Training step (one pass over dataset)
 
         Args:
-            data_loader (torch.utils.data.DataLoader): data loader over train dataset
-            precomputed_intermediate (bool, optional): available already?. Defaults to False.
-            if precomputed intermediate features are already available
-            * avoid recomputation of intermediate features
+            data_loader (DataLoader): data loader over train dataset
+            precomputed_intermediate (bool, optional): available already?.
+                Defaults to False.
+                if precomputed intermediate features are already available
+                * avoid recomputation of intermediate features
 
         Returns:
             float: mean loss of all instances

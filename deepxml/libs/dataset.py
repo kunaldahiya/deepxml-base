@@ -1,5 +1,6 @@
 from . import xdataset, sdataset
-from .dataset_base import DatasetTensor, DatasetBase
+from argparse import Namespace
+from .dataset_base import DatasetTensor
 
 
 def _construct_dataset_class(sampling_t: str):
@@ -31,6 +32,7 @@ def construct_dataset(data_dir,
                       sampling_t='brute',
                       normalize_features=True,
                       normalize_labels=True,
+                      sampling_params: Namespace=Namespace(),
                       keep_invalid=False,
                       feature_type='sparse',
                       max_len=-1,
@@ -41,6 +43,9 @@ def construct_dataset(data_dir,
                  'f_labels': None,
                  'f_label_features': None}
 
+    if hasattr(sampling_params, 'type'):
+        assert sampling_t == sampling_params.type, \
+            "type in sampling_params must match sampling_t"
 
     cls = _construct_dataset_class(sampling_t)
     return cls(data_dir=data_dir,
@@ -48,6 +53,7 @@ def construct_dataset(data_dir,
                data=data,
                mode=mode,
                max_len=max_len,
+               sampling_params=sampling_params,
                normalize_features=normalize_features,
                normalize_labels=normalize_labels,
                keep_invalid=keep_invalid,
