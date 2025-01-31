@@ -41,7 +41,8 @@ def construct_dataset(data_dir,
     if fname is None:
         fname = {'f_features': None,
                  'f_labels': None,
-                 'f_label_features': None}
+                 'f_label_features': None,
+                 'f_label_filter': None}
 
     if hasattr(sampling_params, 'type'):
         assert sampling_t == sampling_params.type, \
@@ -58,4 +59,5 @@ def construct_dataset(data_dir,
                normalize_labels=normalize_labels,
                keep_invalid=keep_invalid,
                feature_type=feature_type,
+               **kwargs
             )

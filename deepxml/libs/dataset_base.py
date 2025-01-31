@@ -3,13 +3,14 @@ from scipy.sparse import spmatrix
 from numpy import ndarray
 from xclib.data.features import FeaturesBase
 
+import os
 import torch
 import numpy as np
 from .features import construct as construct_f
 from .labels import construct as construct_l
 from .datapoint import DataPoint
 
-
+#TODO: What to do with data-points without any positive label
 
 class DatasetBase(torch.utils.data.Dataset):
     """Dataset to load and use XML-Datasets
@@ -47,6 +48,7 @@ class DatasetBase(torch.utils.data.Dataset):
                  feature_type: str='sparse',
                  label_type: str='dense',
                  max_len: int=-1,
+                 f_label_filter: str = None,
                  *args: Optional[Any],
                  **kwargs: Optional[Any]) -> None:
         if data is None:
@@ -64,6 +66,7 @@ class DatasetBase(torch.utils.data.Dataset):
             f_label_features,
             max_len)
         self.label_padding_index = self.num_labels
+        self.label_filter = os.path.join(data_dir, f_label_filter) if f_label_filter is not None else f_label_filter
 
     def load_features(self, data_dir, fname, X,
                       normalize_features, feature_type, max_len):

@@ -39,6 +39,12 @@ class Evaluater:
         acc = acc.eval(_pred.tocsr(), k)
         return MetricRecord(*acc)
 
+    def _load_filter_map(self, filter_map):
+        filter_map = self.filter_map if filter_map is None else filter_map
+        if isinstance(filter_map, str):
+            filter_map = np.loadtxt(filter_map, dtype='int')
+        return filter_map
+
     def __call__(
             self, 
             _true: spmatrix, 
@@ -46,7 +52,8 @@ class Evaluater:
             k: int=5,
             filter_map=None):
         k = k if k > 0 else self.k
-        filter_map = self.filter_map if filter_map is None else filter_map
+        #FIXME (Check if filter map is str or nparray)
+        filter_map = self._load_filter_map(filter_map)
         if issparse(_pred):
             return self._evaluate(
                 _true, filter_predictions(_pred, filter_map), k)
