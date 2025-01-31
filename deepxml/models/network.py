@@ -216,7 +216,7 @@ class BaseNetwork(Module):
         return self.num_params * 4 / math.pow(2, 20)
 
     def __repr__(self):
-        return f"{self.encoder}\n(Classifier): {self.classifier}"
+        return f"(Encoder): {self.encoder}\n(Classifier): {self.classifier}"
 
 
 class XMLNetwork(BaseNetwork):
@@ -242,5 +242,6 @@ class XMLNetworkIS(BaseNetwork):
         Returns:
             torch.Tensor: output of the network (typically logits)
         """
-        X = self.encode(batch['X'])
-        return self.classifier(X, batch['Y_s']), X
+        X = self.encode(_to_device(batch['X'], self.device))
+        return self.classifier(
+            X, _to_device(batch['Y_s'], self.device)), X
