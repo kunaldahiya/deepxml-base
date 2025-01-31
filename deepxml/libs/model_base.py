@@ -1,4 +1,4 @@
-from typing import Optional, Any, Tuple, Union
+from typing import Optional, Any, Tuple, Union, Callable
 from scipy.sparse import spmatrix
 from torch import Tensor
 from .loss import _Loss
@@ -234,8 +234,13 @@ class ModelBase(object):
             del batch_data
         return mean_loss / data_loader.dataset.num_instances
 
-    def evaluate(self, _true: spmatrix, _pred: spmatrix):
-        return self.evaluater(_true, _pred)
+    def evaluate(
+            self, 
+            _true: spmatrix, 
+            _pred: spmatrix, 
+            k: int=5, 
+            filter_map: str=None):
+        return self.evaluater(_true, _pred, k=k, filter_map=filter_map)
 
     def validate(
             self,
@@ -255,7 +260,9 @@ class ModelBase(object):
         predicted_labels, val_avg_loss = self._validate(data_loader)
         toc = time.time()
         _prec = self.evaluate(
-            data_loader.dataset.labels.Y, predicted_labels)
+            data_loader.dataset.labels.Y,
+            predicted_labels,
+            filter_map=getattr(data_loader.dataset, 'label_filter', None))
         self.logger.info("Model saved after epoch: {}".format(epoch))
         self.save_checkpoint(self.model_dir, epoch+1)
         self.tracking.last_saved_epoch = epoch
@@ -348,6 +355,7 @@ class ModelBase(object):
         batch_size: int=128,
         num_workers: int=4,
         shuffle: bool=True,
+        feature_type: str='dense',
         normalize_features=True,
         normalize_labels=False,
         validate_interval=5,
@@ -381,12 +389,14 @@ class ModelBase(object):
             trn_fname,
             data=trn_data,
             mode='train',
+            feature_type=feature_type,
             normalize_features=normalize_features,
             normalize_labels=normalize_labels,
             surrogate_mapping=surrogate_mapping)
         train_loader = self._create_data_loader(
             train_dataset,
             batch_size=batch_size,
+            feature_type=feature_type,
             num_workers=num_workers,
             shuffle=shuffle)
         self.logger.info("Loading validation data.")
@@ -397,11 +407,13 @@ class ModelBase(object):
                 val_fname,
                 data=val_data,
                 mode='predict',
+                feature_type=feature_type,
                 normalize_features=normalize_features,
                 normalize_labels=normalize_labels,
                 surrogate_mapping=surrogate_mapping)
             validation_loader = self._create_data_loader(
                 validation_dataset,
+                feature_type=feature_type,
                 batch_size=batch_size,
                 num_workers=num_workers)
         self._fit(train_loader, validation_loader,
