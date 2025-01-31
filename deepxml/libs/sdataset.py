@@ -4,7 +4,7 @@ from numpy import ndarray
 
 import numpy as np
 from .dataset_base import DatasetBase, DataPoint, DatasetSampling
-from .shortlist import ClusteringIndex, ANNIndex
+from .sampler import ClusteringIndex, ANNIndex
 from .utils import compute_depth_of_tree
 
 
@@ -87,8 +87,9 @@ class DatasetIS(DatasetSampling):
             mode (str, optional): train or test. Defaults to 'train'.
             may be useful in cases where different things are applied 
             to train or test set
-            sampling_params (dict, optional): Parameters for sampler. Defaults to None.
+            sampling_params (Namespace, optional): Parameters for sampler. Defaults to None.
             n_pos (int, optional): Number of positives for each item
+                * n_pos specified in sampling_params will take priority
             normalize_features (bool, optional): unit normalize? Defaults to True.
             normalize_lables (bool, optional): inf normalize? Defaults to False.
             feature_type (str, optional): feature type. Defaults to 'sparse'.
@@ -108,7 +109,12 @@ class DatasetIS(DatasetSampling):
                          label_type=label_type,
                          mode=mode
                         )
-        self.n_pos = n_pos        
+        self.n_pos = sampling_params.n_pos \
+            if hasattr(sampling_params, 'n_pos') else n_pos
+
+    def step(self, *args, **kwargs):
+        # the negative sampler should take care of updates and all
+        self.sampler.step(*args, **kwargs)
 
     def construct_sampler(self, params: Optional[Namespace]=None) -> None:
         if params is not None:
@@ -116,43 +122,38 @@ class DatasetIS(DatasetSampling):
                 self.__len__(),
                 params.init_cluster_size)
             return ClusteringIndex(
-                num_instances=self.__len__(),
+                num_items=self.__len__(),
                 num_clusters=2**depth,
                 num_threads=params.threads,
-                curr_steps=params.curr_epochs)
+                update_steps=params.update_steps,
+                curr_steps=params.curr_steps)
 
     def indices_permutation(self) -> ndarray:
         if self.sampler is None:
             return super().indices_permutation()
-        clusters = np.arange(self.sampler.num_clusters)
-        np.random.shuffle(clusters)
-        indices = []
-        for it in clusters:
-            indices.extend(self.sampler.query[it])
-        return np.array(indices)
-
-    def update_state(self, *args):
-        self.sampler.update_state()
+        return self.sampler.indices_permutation()
 
     def update_sampler(self, *args):
         """Update negative sampler
         """
         self.sampler.update(*args)
 
+    def _sample_y_and_yf(self, ind, n=-1):
+        if n == -1 or len(ind) < n or len(ind) == 0:
+            sampled_ind = ind
+        else:
+            sampled_ind = np.random.choice(ind, size=n), 
+        Yf = None if self.label_features is None \
+            else self.label_features[sampled_ind]
+        return sampled_ind, Yf
+
     def __getitem__(self, index: int) -> DataPoint:
         """Get the data at index"""
         pos_ind, _ = self.labels[index]
-        if self.n_pos == -1:
-            Yf = None if self.label_features is None \
-                else self.label_features[pos_ind]
-        else:
-            sampled_pos_ind = np.random.choice(pos_ind, size=self.n_pos)
-            Yf = None if self.label_features is None \
-                else self.label_features[sampled_pos_ind]
-            pos_ind = (sampled_pos_ind, pos_ind)
+        sampled_ind, Yf = self._sample_y_and_yf(pos_ind, self.n_pos)
         return DataPoint(
             x=self.features[index],
-            y=pos_ind,
+            y=(sampled_ind, pos_ind),
             yf=Yf, 
             index=index)
 
@@ -250,12 +251,10 @@ class DatasetES(DatasetSampling):
     def _sample_and_yf(self, ind, n=-1):
         if n == -1:
             sampled_ind = ind
-            Yf = None if self.label_features is None \
-                else self.label_features[sampled_ind]
         else:
             sampled_ind = np.random.choice(ind, size=n)
-            Yf = None if self.label_features is None \
-                else self.label_features[sampled_ind]
+        Yf = None if self.label_features is None \
+            else self.label_features[sampled_ind]
         return sampled_ind, Yf
 
 
