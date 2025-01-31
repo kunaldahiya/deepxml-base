@@ -29,6 +29,17 @@ class _Linear(torch.nn.Linear):
             _wts = torch.hstack([_wts, _bias])
         return _wts
 
+    def initialize(self, weight: Tensor, bias: Tensor=None):
+        """Initialize weight and bias from existing tensors
+
+        Args:
+            weight (Tensor): weight matrix
+            bias (Tensor, optional): bias matrix. Defaults to None.
+        """
+        self.weight.data.copy_(weight.to(self.weight.data.device))
+        if self.bias is not None:
+            self.bias.data.copy_(bias.to(self.bias.data.device))
+
     @property
     def sparse(self) -> bool:
         return False

@@ -108,6 +108,7 @@ class OVS(_Linear):
                                     self.weight,
                                     sparse=self.sparse,
                                     padding_idx=self.padding_idx)
+        _bias = None
         if self.bias is not None:
             _bias = F.embedding(shortlist,
                                      self.bias,
@@ -190,6 +191,7 @@ class OVSS(_Linear):
                                self.weight,
                                sparse=self.sparse,
                                padding_idx=self.padding_idx)
+        _bias = None
         if self.bias is not None:
             _bias = F.embedding(shortlist,
                                 self.bias,
