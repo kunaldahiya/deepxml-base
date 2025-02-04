@@ -64,7 +64,11 @@ def collate_dense(
     Returns:
         Tensor: Collated dense tensor
     """
-    return torch.stack([torch.from_numpy(z) for z in x], 0).type(dtype)
+    x = list(x) # x can be an iterator
+    if x[0].ndim == 1:
+        return torch.from_numpy(np.stack(x)).type(dtype)
+    else:
+        return torch.from_numpy(np.concatenate(x)).type(dtype)
 
 
 def collate_as_1d(x: Iterator, dtype: dtype) -> Tensor:
@@ -145,9 +149,9 @@ def collate_sequential(batch: Iterator[tuple], max_len) -> tuple:
     Returns:
         tuple: _description_
     """
-    x = list(x)
-    indices = collate_dense(map(lambda z: z[0], batch), dtype=torch.float)
-    mask = collate_dense(map(lambda z: z[1], batch), dtype=torch.float)
+    batch = list(batch)
+    indices = collate_dense(map(lambda z: z[0], batch), dtype=torch.long)
+    mask = collate_dense(map(lambda z: z[1], batch), dtype=torch.long)
     return clip_batch_lengths(indices, mask, max_len)
 
 
@@ -166,7 +170,9 @@ def collate_brute(batch: Iterator[ndarray]) -> tuple:
 
 def collate_implicit(batch: Iterator) -> tuple:
     """Collate labels over iterator for implicit samling (no negatives)
-
+    * It does not select unique labels so that we don't observe any shape
+      mis-matchs when labels embeddings are involved (they are stacked together)
+    
     Args:
         batch (Iterator): an iterator over positives. It can be over: 
             * ndarrays: will consider all the labels 
@@ -207,7 +213,6 @@ def collate_implicit(batch: Iterator) -> tuple:
     rows = np.arange(len(cols))
     data = np.ones((len(rows), ), dtype='bool')
     B = csr_matrix((data, (cols, rows)), shape=(l_max, len(cols)))
-
     batch_selection = (A @ B).toarray().astype('float32')
     return torch.from_numpy(batch_selection), torch.LongTensor(cols), None
 
@@ -241,10 +246,10 @@ class collate():
             max_len (str, int): Clips sequential features. Defaults to -1.
                 * No action if it is -1
             """
+        self.max_len = max_len
         self.collate_ip_features = self.construct_feature_collator(in_feature_t)
         self.collate_op_features = self.construct_feature_collator(op_feature_t)
         self.collate_labels = self.construct_label_collator(sampling_t)
-        self.max_len = max_len
 
     def construct_feature_collator(self, _type: str) -> Callable:
         if _type == "dense":
@@ -264,7 +269,7 @@ class collate():
         elif sampling_t == 'brute':
             return collate_brute
         else:
-            raise NotImplementedError("")
+            return None
 
     def __call__(self, batch):
         data = {}
