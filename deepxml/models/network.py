@@ -9,6 +9,7 @@ import torch.nn as nn
 from argparse import Namespace
 import torch.nn.functional as F
 from .modules import parse_json, construct_module
+from .utils import cosine_sim, ip_sim
 
 
 def _to_device(
@@ -46,6 +47,7 @@ class BaseNetwork(Module):
             config: str, 
             args: Namespace=Namespace(),
             encoder: Module=None, 
+            encoder_lbl: Module=None,
             classifier: Module=None, 
             device="cuda") -> None:
         """
@@ -53,7 +55,9 @@ class BaseNetwork(Module):
             config (str): json file containing the network components
             args (Namespace): Values of placeholders can be taken from args
                 * "#ARGS.x;" value in config will be replaced with args.x
-            encoder (Module or None): encoder module
+            encoder (Module or None): encoder module for inputs or queries
+                - to encode given (raw) representation
+            encoder_lbl (Module or None): encoder module for output or labels
                 - to encode given (raw) representation
             classifier (Module or None): Classifier module 
                 - can be identity or None if required
@@ -64,18 +68,22 @@ class BaseNetwork(Module):
         if config is not None:
             self._construct_from_config(parse_json(config, args))
         elif encoder is not None:
-            self._construct_from_module(encoder, classifier)
+            self._construct_from_module(encoder, encoder_lbl, classifier)
         else:
             raise NotImplementedError(
                 "Either of modules or config must be valid")
 
     def _construct_from_module(
             self, 
-            encoder: Module, 
+            encoder: Module,
+            encoder_lbl: Module, 
             classifier: Module, 
         ) -> Module:
         self.encoder = encoder
         self.classifier = classifier
+        self.encoder_lbl = encoder_lbl
+        if hasattr(self.encoder, 'repr_dims'):
+            self._repr_dims = self.encoder.repr_dims
 
     def _construct_from_config(
             self, 
@@ -91,7 +99,17 @@ class BaseNetwork(Module):
             Module: class instance
         """
         self.encoder = self._construct_encoder(config['encoder'])
-        self.classifier = self._construct_classifier(config['classifier'])
+        #TODO: See if it is better for them to be None or as identity
+        if 'classifier' in config:
+            self.classifier = self._construct_classifier(config['classifier'])
+        if 'encoder_lbl' in config:
+            self.encoder_lbl = self._construct_encoder(config['encoder_lbl'])
+
+        if hasattr(self.encoder, 'repr_dims'):
+            self._repr_dims = self.encoder.repr_dims
+
+        if 'repr_dims' in config:
+            self._repr_dims = int(config['repr_dims'])
 
     def _construct_encoder(self, config: dict) -> Module:
         # Construct encoder from dictionary
@@ -124,6 +142,7 @@ class BaseNetwork(Module):
     def from_modules(
         cls, 
         encoder: Module, 
+        encoder_lbl: Module,
         classifier: Module, 
         device: str="cuda") -> Module:
         """Construct the class from already constructed modules
@@ -137,7 +156,7 @@ class BaseNetwork(Module):
         Returns:
             Module: class instance
         """
-        return cls(None, encoder, classifier, device=device)
+        return cls(None, encoder, encoder_lbl, classifier, device=device)
 
     def _construct_module(self, config: str=dict) -> Module:
         if config is None:
@@ -145,16 +164,16 @@ class BaseNetwork(Module):
         return construct_module(config)
 
     @property
-    def representation_dims(self) -> int:
+    def repr_dims(self) -> int:
         """Representation dimension
         """
         return self._repr_dims
 
-    @representation_dims.setter
-    def representation_dims(self, dims: int) -> None:
+    @repr_dims.setter
+    def repr_dims(self, dims: int) -> None:
         self._repr_dims = dims
 
-    def encode(self, x: tuple) -> Tensor:
+    def encode(self, x: tuple, *args, **kwargs) -> Tensor:
         """Encode an item using the given network
 
         Args:
@@ -216,7 +235,7 @@ class BaseNetwork(Module):
         return self.num_params * 4 / math.pow(2, 20)
 
     def __repr__(self):
-        return f"(Encoder): {self.encoder}\n(Classifier): {self.classifier}"
+        return f"(Encoder): {self.encoder}\n(Label Encoder): {self.encoder_lbl}\n(Classifier): {self.classifier}"
 
 
 class XMLNetwork(BaseNetwork):
@@ -245,3 +264,76 @@ class XMLNetworkIS(BaseNetwork):
         X = self.encode(_to_device(batch['X'], self.device))
         return self.classifier(
             X, _to_device(batch['Y_s'], self.device)), X
+
+
+class SiameseNetworkIS(BaseNetwork):
+    """
+    Class to train encoder with shared shortlist
+    """
+    def __init__(
+            self, 
+            config: str, 
+            args: Namespace=Namespace(),
+            encoder: Module=None, 
+            encoder_lbl: Module=None,
+            classifier: Module=None, 
+            device="cuda") -> None:
+        """
+        Args:
+            config (str): json file containing the network components
+            args (Namespace): Values of placeholders can be taken from args
+                * "#ARGS.x;" value in config will be replaced with args.x
+            encoder (Module or None): encoder module for inputs or queries
+                - to encode given (raw) representation
+            encoder_lbl (Module or None): encoder module for output or labels
+                - to encode given (raw) representation
+            classifier (Module or None): Classifier module 
+                - can be identity or None if required
+            device (str, optional): device for network. Defaults to "cuda".
+        """
+        super(SiameseNetworkIS, self).__init__(
+            config=config,
+            args=args,
+            encoder=encoder,
+            encoder_lbl=encoder_lbl,
+            classifier=classifier,
+            device=device)
+        if not hasattr(args, 'metric'):
+            args.metric = 'cosine'
+        self.metric = args.metric
+        self.similarity = self._setup_metric(args.metric)
+
+    def _setup_metric(self, metric):
+        if metric == 'cosine':
+            return cosine_sim       
+        elif metric == 'ip':
+            return ip_sim 
+        else:
+            raise NotImplementedError("Unknown metric!")      
+
+    def encode_lbl(self, x: tuple) -> Tensor:
+        """Encode an item using the given network
+
+        Args:
+            x (tuple): #TODO
+
+        Returns:
+            torch.Tensor: Encoded item
+        """
+        return self.encoder_lbl(_to_device(x, self.device))
+
+    def forward(self, batch, *args):
+        """Forward pass
+
+        * Assumes features are dense if X_w is None
+
+        Args:
+            batch (dict): A dictionary containing features or 
+                tokenized representation and shared label shortlist
+
+        Returns:
+            torch.Tensor: output of the network (typically logits)
+        """
+        X = self.encode(_to_device(batch['X'], self.device))
+        Z = self.encode(_to_device(batch['Z'], self.device))
+        return self.similarity(X, Z), X
