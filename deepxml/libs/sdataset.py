@@ -21,7 +21,7 @@ class Dataset(DatasetBase):
                  mode: str='train',
                  normalize_features: bool=True,
                  normalize_lables: bool=False,
-                 feature_type: str='sparse',
+                 feature_t: str='sparse',
                  label_type: str='sparse',
                  max_len: int=-1,
                  *args: Optional[Any],
@@ -34,7 +34,7 @@ class Dataset(DatasetBase):
                          max_len=max_len,
                          normalize_features=normalize_features,
                          normalize_lables=normalize_lables,
-                         feature_type=feature_type,
+                         feature_t=feature_t,
                          label_type=label_type,
                          mode=mode
                         )        
@@ -65,7 +65,7 @@ class DatasetIS(DatasetSampling):
                  mode: str='train',
                  normalize_features: bool=True,
                  normalize_lables: bool=False,
-                 feature_type: str='sparse',
+                 feature_t: str='sparse',
                  label_type: str='sparse',
                  max_len: int=-1,
                  n_pos: int=1,
@@ -92,7 +92,7 @@ class DatasetIS(DatasetSampling):
                 * n_pos specified in sampling_params will take priority
             normalize_features (bool, optional): unit normalize? Defaults to True.
             normalize_lables (bool, optional): inf normalize? Defaults to False.
-            feature_type (str, optional): feature type. Defaults to 'sparse'.
+            feature_t (str, optional): feature type. Defaults to 'sparse'.
             label_type (str, optional): label type. Defaults to 'dense'.
             max_len (int, optional): max length. Defaults to -1.
         """
@@ -105,7 +105,7 @@ class DatasetIS(DatasetSampling):
                          max_len=max_len,
                          normalize_features=normalize_features,
                          normalize_lables=normalize_lables,
-                         feature_type=feature_type,
+                         feature_t=feature_t,
                          label_type=label_type,
                          mode=mode
                         )
@@ -174,7 +174,7 @@ class DatasetES(DatasetSampling):
                  mode: str='train',
                  normalize_features: bool=True,
                  normalize_lables: bool=False,
-                 feature_type: str='sparse',
+                 feature_t: str='sparse',
                  label_type: str='sparse',
                  max_len: int=-1,
                  n_pos: int=1,
@@ -202,7 +202,7 @@ class DatasetES(DatasetSampling):
             n_neg (int, optional): Number of negatives for each item
             normalize_features (bool, optional): unit normalize? Defaults to True.
             normalize_lables (bool, optional): inf normalize? Defaults to False.
-            feature_type (str, optional): feature type. Defaults to 'sparse'.
+            feature_t (str, optional): feature type. Defaults to 'sparse'.
             label_type (str, optional): label type. Defaults to 'dense'.
             max_len (int, optional): max length. Defaults to -1.
         """
@@ -215,7 +215,7 @@ class DatasetES(DatasetSampling):
                          max_len=max_len,
                          normalize_features=normalize_features,
                          normalize_lables=normalize_lables,
-                         feature_type=feature_type,
+                         feature_t=feature_t,
                          label_type=label_type,
                          mode=mode
                         )

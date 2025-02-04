@@ -32,7 +32,7 @@ class DatasetBase(torch.utils.data.Dataset):
           to train or test set
         normalize_features (bool, optional): unit normalize? Defaults to True.
         normalize_lables (bool, optional): inf normalize? Defaults to False.
-        feature_type (str, optional): feature type. Defaults to 'sparse'.
+        feature_t (str, optional): feature type. Defaults to 'sparse'.
         label_type (str, optional): label type. Defaults to 'dense'.
         max_len (int, optional): max length. Defaults to -1.
     """
@@ -45,7 +45,7 @@ class DatasetBase(torch.utils.data.Dataset):
                  mode: str='train',
                  normalize_features: bool=True,
                  normalize_lables: bool=False,
-                 feature_type: str='sparse',
+                 feature_t: str='sparse',
                  label_type: str='dense',
                  max_len: int=-1,
                  f_label_filter: str = None,
@@ -61,7 +61,7 @@ class DatasetBase(torch.utils.data.Dataset):
             data,
             normalize_features,
             normalize_lables,
-            feature_type,
+            feature_t,
             label_type,
             f_label_features,
             max_len)
@@ -69,13 +69,13 @@ class DatasetBase(torch.utils.data.Dataset):
         self.label_filter = os.path.join(data_dir, f_label_filter) if f_label_filter is not None else f_label_filter
 
     def load_features(self, data_dir, fname, X,
-                      normalize_features, feature_type, max_len):
+                      normalize_features, feature_t, max_len):
         """Load features from given file
         Features can also be supplied directly
         """
         return construct_f(data_dir, fname, X,
                            normalize_features,
-                           feature_type, max_len)
+                           feature_t, max_len)
 
     def load_labels(self, data_dir, fname, Y, normalize_labels, label_type):
         """Load labels from given file
@@ -86,20 +86,20 @@ class DatasetBase(torch.utils.data.Dataset):
 
     def load_data(self, data_dir, f_features, f_labels, data,
                   normalize_features=True, normalize_labels=False,
-                  feature_type='sparse', label_type='dense',
+                  feature_t='sparse', label_type='dense',
                   f_label_features=None, max_len=32):
         """Load features and labels from file in libsvm format or pickle
         """
         features = self.load_features(
             data_dir, f_features, data['X'],
-            normalize_features, feature_type, max_len)
+            normalize_features, feature_t, max_len)
         labels = self.load_labels(
             data_dir, f_labels, data['Y'], normalize_labels, label_type)
         label_features = None
         if f_label_features is not None or data["Yf"] is not None:
             label_features = self.load_features(
                 data_dir, f_label_features, data['Yf'],
-                normalize_features, feature_type, max_len)
+                normalize_features, feature_t, max_len)
         return features, labels, label_features
 
     @property
@@ -158,7 +158,7 @@ class DatasetSampling(DatasetBase):
         sampling_params (dict, optional): Parameters for sampler. Defaults to None.
         normalize_features (bool, optional): unit normalize? Defaults to True.
         normalize_lables (bool, optional): inf normalize? Defaults to False.
-        feature_type (str, optional): feature type. Defaults to 'sparse'.
+        feature_t (str, optional): feature type. Defaults to 'sparse'.
         label_type (str, optional): label type. Defaults to 'dense'.
         max_len (int, optional): max length. Defaults to -1.
     """
@@ -173,7 +173,7 @@ class DatasetSampling(DatasetBase):
                  sampling_params: dict=None,
                  normalize_features: bool=True,
                  normalize_lables: bool=False,
-                 feature_type: str='sparse',
+                 feature_t: str='sparse',
                  label_type: str='dense',
                  max_len: int=-1,
                  *args: Optional[Any],
@@ -187,7 +187,7 @@ class DatasetSampling(DatasetBase):
             mode=mode, 
             normalize_features=normalize_features,
             normalize_lables=normalize_lables,
-            feature_type=feature_type,
+            feature_t=feature_t,
             max_len=max_len,
             label_type=label_type)
         self.sampler = self.construct_sampler(sampling_params)
@@ -202,35 +202,36 @@ class DatasetSampling(DatasetBase):
 class DatasetTensor(torch.utils.data.Dataset):
     """Dataset for just the features
     * support for optional keyword arguments like max_len
-
-    Args:
-        data_dir (str): data directory
-        fname (str): load data from this file
-        data (Optional[Union[spmatrix, ndarray, Tuple]], optional): preloaded data.
-            Defaults to None.
-            * ndarray: dense features as numpy array
-            * csr_matrix: sparse features as csr matrux
-            * None: pre-loaded features not available; load from file
-            * tuple: a tuple of ndarrays (useful in case of sequential features)
-        normalize (bool, optional): normalize features. Defaults to False.
-        _type (str, optional): type of features. Defaults to 'sparse'.
-            * sparse
-            * dense
-            * sequential
     """
     def __init__(self,
-                 data_dir: str,
-                 fname: str,
+                 data_dir: str = None,
+                 fname: str = None,
                  data: Optional[Union[spmatrix, ndarray, Tuple]]=None,
                  normalize: bool=True,
-                 _type: str='sparse',
+                 feature_t: str='sparse',
                  **kwargs: Optional[Any]) -> None:
+        """
+        Args:
+            data_dir (str): data directory
+            fname (str): load data from this file
+            data (Optional[Union[spmatrix, ndarray, Tuple]], optional): preloaded data.
+                Defaults to None.
+                * ndarray: dense features as numpy array
+                * csr_matrix: sparse features as csr matrux
+                * None: pre-loaded features not available; load from file
+                * tuple: a tuple of ndarrays (useful in case of sequential features)
+            normalize (bool, optional): normalize features. Defaults to False.
+            feature_t (str, optional): type of features. Defaults to 'sparse'.
+                * sparse
+                * dense
+                * sequential
+        """
         self.data = self.construct(
             data_dir=data_dir,
             fname=fname,
             data=data,
             normalize=normalize,
-            _type=_type,
+            _type=feature_t,
             **kwargs)
 
     def construct(

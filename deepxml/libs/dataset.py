@@ -34,10 +34,9 @@ def construct_dataset(data_dir,
                       normalize_labels=True,
                       sampling_params: Namespace=Namespace(),
                       keep_invalid=False,
-                      feature_type='sparse',
+                      feature_t='sparse',
                       max_len=-1,
                       **kwargs):    
-
     if fname is None:
         fname = {'f_features': None,
                  'f_labels': None,
@@ -58,6 +57,6 @@ def construct_dataset(data_dir,
                normalize_features=normalize_features,
                normalize_labels=normalize_labels,
                keep_invalid=keep_invalid,
-               feature_type=feature_type,
+               feature_t=feature_t,
                **kwargs
             )
