@@ -74,8 +74,9 @@ class ModelIS(ModelBase):
         dataset: DatasetBase,
         prefetch_factor: int=5,
         batch_size: int=128,
-        feature_type: str='sparse',
-        sampling_type: str='brute',
+        feature_t: str='sparse',
+        op_feature_t: str=None,
+        sampling_t: str='brute',
         num_workers: int=4,
         shuffle: bool=False, 
         **kwargs
@@ -88,9 +89,9 @@ class ModelIS(ModelBase):
                 used in the data loader. 
             batch_size (int, optional): Defaults to 128
                 batch size in data loader.
-            feature_type (str, optional): Defaults to 'sparse'
+            feature_t (str, optional): Defaults to 'sparse'
                 type of features.
-            sampling_type (str, optional): Defaults to 'brute'.
+            sampling_t (str, optional): Defaults to 'brute'.
                 sampling type (used in creating data loader)
             num_workers (int, optional): Workers in dataloader. Defaults to 4.
             shuffle (bool, optional): Shuffle batches. Defaults to False.
@@ -107,7 +108,7 @@ class ModelIS(ModelBase):
             prefetch_factor=prefetch_factor if num_workers > 0 else None,
             num_workers=num_workers,
             collate_fn=self._create_collate_fn(
-                feature_type, sampling_type))
+                feature_t, sampling_t, op_feature_t))
         return dt_loader
 
     def _compute_loss(self, y_hat: Tensor, batch: dict) -> Tensor:
@@ -311,7 +312,7 @@ class XModelIS(ModelIS):
     def _init_memory_bank(self, dataset):
         # FIXME: fix the length of the vector
         self.memory_bank = np.zeros(
-            (len(dataset), 300),
+            (len(dataset), self.net.repr_dims),
             dtype='float32'
         )
 
@@ -329,7 +330,7 @@ class XModelIS(ModelIS):
         num_workers: int=4,
         shuffle: bool=True,
         normalize_features=True,
-        feature_type: str='dense',
+        feature_t: str='dense',
         normalize_labels=False,
         validate_interval=5,
         surrogate_mapping=None, **kwargs
@@ -355,7 +356,6 @@ class XModelIS(ModelIS):
         """
         """
         TODO:
-        * Support for filter file
         * Support for frozen and pre-computed representation
         * Classifier initialization
         * Post-processing for inference
@@ -369,7 +369,7 @@ class XModelIS(ModelIS):
             trn_fname,
             data=trn_data,
             mode='train',
-            feature_type=feature_type,
+            feature_t=feature_t,
             sampling_t=sampling_params.type,
             sampling_params=sampling_params,
             normalize_features=normalize_features,
@@ -378,8 +378,8 @@ class XModelIS(ModelIS):
         train_loader = self._create_data_loader(
             train_dataset,
             batch_size=batch_size,
-            feature_type=feature_type,
-            sampling_type=sampling_params.type, # must be implicit
+            feature_t=feature_t,
+            sampling_t=sampling_params.type, # must be implicit
             num_workers=num_workers,
             shuffle=shuffle)
         self._init_memory_bank(train_dataset)
@@ -391,13 +391,13 @@ class XModelIS(ModelIS):
                 val_fname,
                 data=val_data,
                 mode='predict',
-                feature_type=feature_type,
+                feature_t=feature_t,
                 normalize_features=normalize_features,
                 normalize_labels=normalize_labels,
                 surrogate_mapping=surrogate_mapping)
             validation_loader = self._create_data_loader(
                 validation_dataset,
-                feature_type=feature_type,
+                feature_t=feature_t,
                 batch_size=batch_size,
                 num_workers=num_workers)
         self._fit(train_loader, validation_loader,
@@ -405,6 +405,166 @@ class XModelIS(ModelIS):
 
     def get_label_representations(self) -> Union[Tensor, ndarray]:
         return self.net.classifier.get_weights()
+
+    def post_process_for_inference(self):
+        raise NotImplementedError("")
+
+    def _predict(self):
+        raise NotImplementedError("")
+
+    def predict(self): 
+        raise NotImplementedError("")
+
+
+class EModelIS(ModelIS):
+    """
+    For models that to train embedding or siamese models with implicit sampling
+
+    * Siamese training: Encoders are trained    
+    * Implicit sampling: negatives are not explicity sampled but
+    selected from positive labels of other documents in the mini-batch
+
+    """    
+    def _init_memory_bank(self, dataset):
+        self.memory_bank = np.zeros(
+            (len(dataset), self.net.repr_dims),
+            dtype='float32'
+        )
+
+    def fit(
+        self,
+        data_dir: str,
+        dataset: str,
+        trn_fname: str,
+        val_fname: str,
+        sampling_params: Namespace,
+        trn_data: dict=None,
+        val_data: dict=None,
+        num_epochs: int=10,
+        batch_size: int=128,
+        num_workers: int=4,
+        shuffle: bool=True,
+        normalize_features=True,
+        feature_t: str='dense',
+        normalize_labels=False,
+        validate_interval=5,
+        surrogate_mapping=None, **kwargs
+    ) -> None:
+        """Train the model on the basis of given data and parameters
+
+        Args:
+            data_dir (str): load data from this directory when data is None
+            dataset (str): dataset name
+            trn_fname (str): file names for training data
+            val_fname (str): file names for validation data
+            trn_data (dict, optional): loaded train data. Defaults to None.
+            val_data (dict, optional): loaded val data. Defaults to None.
+            num_epochs (int, optional): number of epochs. Defaults to 10.
+            batch_size (int, optional): batch size. Defaults to 128.
+            num_workers (int, optional): workers in data loader. Defaults to 4.
+            shuffle (bool, optional): shuffle while batching. Defaults to False.
+            normalize_features (bool, optional): normalize features. Defaults to True.
+            normalize_labels (bool, optional): normalize labels. Defaults to False.
+            validate_interval (int, optional): validate after these many epochs. 
+                Defaults to 5.
+            surrogate_mapping (_type_, optional): _description_. Defaults to None.
+        """
+        """
+        TODO:
+        * Post-processing for inference
+        """ 
+        # Reset the logger to dump in train log file
+        self.logger.addHandler(
+            logging.FileHandler(os.path.join(self.result_dir, 'log_train.txt'))) 
+        self.logger.info("Loading training data.")
+        train_dataset = self._create_dataset(
+            os.path.join(data_dir, dataset),
+            trn_fname,
+            data=trn_data,
+            mode='train',
+            feature_t=feature_t,
+            sampling_t=sampling_params.type,
+            sampling_params=sampling_params,
+            normalize_features=normalize_features,
+            normalize_labels=normalize_labels,
+            surrogate_mapping=surrogate_mapping)
+        train_loader = self._create_data_loader(
+            train_dataset,
+            batch_size=batch_size,
+            feature_t=feature_t,
+            op_feature_t=feature_t,
+            sampling_t=sampling_params.type, # must be implicit
+            num_workers=num_workers,
+            shuffle=shuffle)
+        self._init_memory_bank(train_dataset)
+        validation_loader = None
+        if validate_interval < num_epochs:
+            self.logger.info("Loading validation data.")
+            validation_dataset = self._create_dataset(
+                os.path.join(data_dir, dataset),
+                val_fname,
+                data=val_data,
+                mode='predict',
+                feature_t=feature_t,
+                normalize_features=normalize_features,
+                normalize_labels=normalize_labels,
+                surrogate_mapping=surrogate_mapping)
+            validation_loader = self._create_data_loader(
+                validation_dataset,
+                feature_t=feature_t,
+                batch_size=batch_size,
+                num_workers=num_workers)
+        self._fit(train_loader, validation_loader,
+                  num_epochs, validate_interval)
+
+    def get_label_representations(
+            self, 
+            dataset, 
+            batch_size=128) -> Union[Tensor, ndarray]:
+        self.net.eval()
+        return self.get_embeddings(
+            data=dataset.label_features.data,
+            encoder=self.net.encode_lbl,
+            batch_size=batch_size,
+            feature_t=dataset.label_features._type
+            )
+
+    @torch.no_grad()
+    def _validate(
+            self, 
+            data_loader: DataLoader, 
+            k: int=10) -> Tuple[spmatrix, float]:
+        """predict for the given data loader
+
+        Args:
+            data_loader (DataLoader): data loader 
+                over validation dataset
+            k (int, optional): consider top k predictions. 
+                Defaults to 10.
+
+        Returns:
+            tuple (spmatrix, float) 
+                - predictions for the given dataset
+                - mean loss over the validation dataset
+        """
+        self.net.eval()
+        self._fit_shortlister(self.get_label_representations(data_loader.dataset))
+        top_k = min(k, data_loader.dataset.num_labels)
+        predicted_labels = SMatrix(
+            n_rows=data_loader.dataset.num_instances,
+            n_cols=data_loader.dataset.num_labels,
+            nnz=top_k)
+        count = 0
+        for batch_data in tqdm(data_loader):
+            batch_size = batch_data['batch_size']
+            emb = self.net.encode(batch_data['X'])
+            # FIXME: the device may be different
+            ind, vals = self.shortlister.query(emb.cpu().numpy(), top_k)
+            predicted_labels.update_block(
+                count, ind.cpu().numpy(), vals.cpu().numpy())
+            count += batch_size
+            del batch_data
+        return predicted_labels.data(), math.nan
 
     def post_process_for_inference(self):
         raise NotImplementedError("")
