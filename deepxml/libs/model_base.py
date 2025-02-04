@@ -10,12 +10,13 @@ from .dataset_base import DatasetBase
 
 import sys
 import os
-import logging
 import time
+import logging
+import numpy as np
+from tqdm import tqdm
 import torch.utils.data
 from .tracking import Tracking
 from torch.utils.data import DataLoader
-from tqdm import tqdm
 from xclib.utils.matrix import SMatrix
 from .dataset import construct_dataset
 from .collator import collate
@@ -97,7 +98,7 @@ class ModelBase(object):
             mode='train',
             normalize_features=True,
             normalize_labels=True,
-            feature_type='sparse',
+            feature_t='sparse',
             max_len=-1,
             **kwargs) -> DatasetBase:
             return construct_dataset(
@@ -106,7 +107,7 @@ class ModelBase(object):
                 data=data,
                 mode=mode,
                 max_len=max_len,
-                feature_type=feature_type,
+                feature_t=feature_t,
                 normalize_features=normalize_features,
                 normalize_labels=normalize_labels,
                 **kwargs
@@ -117,8 +118,9 @@ class ModelBase(object):
         dataset: DatasetBase,
         prefetch_factor: int=5,
         batch_size: int=128,
-        feature_type: str='sparse',
-        sampling_type: str='brute',
+        feature_t: str='sparse',
+        op_feature_t: str=None,
+        sampling_t: str='brute',
         num_workers: int=4,
         shuffle: bool=False, 
         **kwargs
@@ -131,9 +133,9 @@ class ModelBase(object):
                 used in the data loader. 
             batch_size (int, optional): Defaults to 128
                 batch size in data loader.
-            feature_type (str, optional): Defaults to 'sparse'
+            feature_t (str, optional): Defaults to 'sparse'
                 type of features.
-            sampling_type (str, optional): Defaults to 'brute'.
+            sampling_t (str, optional): Defaults to 'brute'.
                 sampling type (used in creating data loader)
             num_workers (int, optional): Workers in dataloader. Defaults to 4.
             shuffle (bool, optional): Shuffle batches. Defaults to False.
@@ -148,11 +150,11 @@ class ModelBase(object):
             num_workers=num_workers,
             shuffle=shuffle,
             collate_fn=self._create_collate_fn(
-                feature_type, sampling_type))
+                feature_t, sampling_t, op_feature_t))
         return dt_loader
 
-    def _create_collate_fn(self, feature_type, sampling_type):
-        return collate(feature_type, sampling_type)
+    def _create_collate_fn(self, feature_t, sampling_t, op_feature_t):
+        return collate(feature_t, sampling_t, op_feature_t)
 
     def _compute_loss(self, _pred: Tensor, batch_data: dict) -> Tensor:
         """Compute loss
@@ -355,7 +357,7 @@ class ModelBase(object):
         batch_size: int=128,
         num_workers: int=4,
         shuffle: bool=True,
-        feature_type: str='dense',
+        feature_t: str='dense',
         normalize_features=True,
         normalize_labels=False,
         validate_interval=5,
@@ -389,14 +391,14 @@ class ModelBase(object):
             trn_fname,
             data=trn_data,
             mode='train',
-            feature_type=feature_type,
+            feature_t=feature_t,
             normalize_features=normalize_features,
             normalize_labels=normalize_labels,
             surrogate_mapping=surrogate_mapping)
         train_loader = self._create_data_loader(
             train_dataset,
             batch_size=batch_size,
-            feature_type=feature_type,
+            feature_t=feature_t,
             num_workers=num_workers,
             shuffle=shuffle)
         self.logger.info("Loading validation data.")
@@ -407,17 +409,122 @@ class ModelBase(object):
                 val_fname,
                 data=val_data,
                 mode='predict',
-                feature_type=feature_type,
+                feature_t=feature_t,
                 normalize_features=normalize_features,
                 normalize_labels=normalize_labels,
                 surrogate_mapping=surrogate_mapping)
             validation_loader = self._create_data_loader(
                 validation_dataset,
-                feature_type=feature_type,
+                feature_t=feature_t,
                 batch_size=batch_size,
                 num_workers=num_workers)
         self._fit(train_loader, validation_loader,
                   num_epochs, validate_interval)
+
+    @torch.no_grad()
+    def _embeddings(
+        self,
+        data_loader: DataLoader,
+        encoder: Callable = None,
+        fname_out: str = None,
+        _dtype='float32'
+    ) -> np.ndarray:
+        """Encode given data points
+        * support for objects or files on disk
+
+
+        Args:
+            data_loader (DataLoader): DataLoader object to \
+                  create batches and iterate over it
+            encoder (Callable, optional): Defaults to None.
+                use this function to encode given dataset
+                * net.encode is used when None
+            fname_out (str, optional): dump features to this file. Defaults to None.
+            _dtype (str, optional): data type of output tensors. Defaults to 'float32'.
+
+        Returns:
+            np.ndarray: embeddings (as memmap or ndarray)
+        """
+
+        if encoder is None:
+            self.logger.info("Using the default encoder.")
+            encoder = self.net.encode
+        self.net.eval()
+        torch.set_grad_enabled(False)
+        if fname_out is not None:  # Save to disk
+            embeddings = np.memmap(
+                fname_out, dtype=_dtype, mode='w+',
+                shape=(len(data_loader.dataset), self.net.repr_dims))
+        else:  # Keep in memory
+            embeddings = np.zeros((
+                len(data_loader.dataset), self.net.repr_dims),
+                dtype=_dtype)
+        idx = 0
+        for batch_data in tqdm(data_loader, desc="Computing Embeddings"):
+            bsz = batch_data['batch_size']
+            out_ans = encoder(batch_data['X'])
+            embeddings[idx :idx+bsz, :] = out_ans.detach().cpu().numpy()
+            idx += bsz
+        torch.cuda.empty_cache()
+        if fname_out is not None:  # Flush all changes to disk
+            embeddings.flush()
+        return embeddings
+
+    def get_embeddings(
+        self,
+        encoder: Callable = None,
+        data_dir: str = None,
+        fname: str = None,
+        data: dict = None,
+        batch_size: int = 1024,
+        num_workers: int = 6,
+        normalize: bool = False,
+        fname_out: str = None,
+        feature_t='sparse', 
+        **kwargs
+    ) -> np.ndarray:
+        """Encode given data points
+        * support for objects or files on disk
+
+        Args:
+            encoder (Callable, optional): Defaults to None.
+                use this function to encode given dataset
+                * net.encode is used when None
+            data_dir (str, optional): Data directory. Defaults to None.
+            fname (str, optional): data file. Defaults to None.
+            data (dict, optional): pre-loaded data dictionary. Defaults to None.
+            batch_size (int, optional): batch size. Defaults to 1024.
+            num_workers (int, optional): number of workers. Defaults to 6.
+            normalize (bool, optional): normalize features. Defaults to False.
+            fname_out (str, optional): dump features to this file. Defaults to None.
+            feature_t (str, optional): type of features. Defaults to 'sparse'.
+
+        Returns:
+            ndarray: numpy array containing the embeddings 
+        """
+        if data is None:
+            assert data_dir is not None and fname is not None, \
+                "valid file path is required when data is not passed"
+        dataset = self._create_dataset(
+            data_dir,
+            fname=fname,
+            data=data,
+            mode="test",
+            normalize_features=normalize,
+            feature_t=feature_t,
+            classifier_t=None,
+            sampling_t=None,
+            **kwargs)
+        data_loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            collate_fn=self._create_collate_fn(
+                feature_t=feature_t,
+                sampling_t=None,
+                op_feature_t=None),
+            shuffle=False)
+        return self._embeddings(data_loader, encoder, fname_out)
 
     def save(self, model_dir: str, fname: str, *args: Any) -> None:
         """Save model on disk
