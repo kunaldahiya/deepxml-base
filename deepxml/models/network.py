@@ -36,10 +36,13 @@ def _to_device(
 
 class BaseNetwork(Module):
     """BaseNetwork: Base class for different networks
-    * Identity op as classifier by default
-    (derived class should implement it's own classifier)
-    * embedding and classifier shall automatically transfer
-    the vector to the appropriate device
+
+    Components:
+    * encoder: an encoder layer to encode the inputs (e.g. queries)
+    * encoder_lbl: an encoder layer to encode the outputs (e.g. labels)
+        - encoder_lbl will be same as encoder unless it is passed explicitly
+    * classifier: explicit classifiers (e.g., 1-vs-All classifiers)
+        - Identity op as classifier if is not pass
     """
 
     def __init__(
@@ -81,7 +84,10 @@ class BaseNetwork(Module):
         ) -> Module:
         self.encoder = encoder
         self.classifier = classifier
-        self.encoder_lbl = encoder_lbl
+        if self.encoder_lbl is not None:
+            self.encoder_lbl = encoder_lbl
+        else:
+            self.encoder_lbl = encoder
         if hasattr(self.encoder, 'repr_dims'):
             self._repr_dims = self.encoder.repr_dims
 
@@ -102,8 +108,11 @@ class BaseNetwork(Module):
         #TODO: See if it is better for them to be None or as identity
         if 'classifier' in config:
             self.classifier = self._construct_classifier(config['classifier'])
+
         if 'encoder_lbl' in config:
-            self.encoder_lbl = self._construct_encoder(config['encoder_lbl'])
+           self.encoder_lbl = self._construct_encoder(config['encoder_lbl'])
+        else:
+            self.encoder_lbl = self.encoder
 
         if hasattr(self.encoder, 'repr_dims'):
             self._repr_dims = self.encoder.repr_dims
@@ -335,5 +344,5 @@ class SiameseNetworkIS(BaseNetwork):
             torch.Tensor: output of the network (typically logits)
         """
         X = self.encode(_to_device(batch['X'], self.device))
-        Z = self.encode(_to_device(batch['Z'], self.device))
+        Z = self.encode_lbl(_to_device(batch['Z'], self.device))
         return self.similarity(X, Z), X
