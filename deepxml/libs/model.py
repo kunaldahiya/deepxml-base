@@ -43,6 +43,7 @@ class ModelIS(ModelBase):
             model_dir: str,
             result_dir: str,
             shortlister: Shortlist,
+            use_amp: bool = True,
             *args: Optional[Any],
             **kwargs: Optional[Any]
         ) -> None:
@@ -64,7 +65,8 @@ class ModelIS(ModelBase):
             schedular=schedular,
             evaluater=evaluater,
             model_dir=model_dir,
-            result_dir=result_dir
+            result_dir=result_dir,
+            use_amp=use_amp
         )
         self.shortlister = shortlister
         self.memory_bank = None
@@ -133,80 +135,60 @@ class ModelIS(ModelBase):
             data_loader.dataset.indices_permutation())
 
     def _step_amp(self,
-              data_loader: DataLoader,
+              batch: dict,
               precomputed_intermediate: bool=False) -> float:
-        """Training step (one pass over dataset) for amp training
+        """Training step (process one batch)
 
         Args:
-            data_loader (DataLoader): data loader over train dataset
+            batch (dict): batch data
             precomputed_intermediate (bool, optional): available already?.
                 Defaults to False.
                 if precomputed intermediate features are already available
                 * avoid recomputation of intermediate features
 
         Returns:
-            float: mean loss of all instances
+            float: loss value as float
         """
-        self.net.train()
-        torch.set_grad_enabled(True)
-        mean_loss = 0
-        pbar = tqdm(data_loader)
-        for batch_data in pbar:
-            self.optimizer.zero_grad()
-            batch_size = batch_data['batch_size']
-            with torch.amp.autocast(self.device):
-                out_ans, rep = self.net.forward(
-                    batch_data, precomputed_intermediate)
-                loss = self._compute_loss(out_ans, batch_data)
-            if self.memory_bank is not None:
-                ind = batch_data['indices']
-                self.memory_bank[ind] = rep.detach().cpu().numpy()
-            mean_loss += loss.item()*batch_size
-            self.scaler.scale(loss).backward()
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
-            self.schedular.step()
-            pbar.set_description(
-                f"loss: {loss.item():.5f}")
-            del batch_data
-        return mean_loss / data_loader.dataset.num_instances
+        self.optimizer.zero_grad()
+        with torch.amp.autocast(self.device):
+            out, rep = self.net.forward(batch, precomputed_intermediate)
+            loss = self._compute_loss(out, batch)
+        if self.memory_bank is not None:
+            ind = batch['indices']
+            self.memory_bank[ind] = rep.detach().cpu().numpy()
+        _loss = loss.item()
+        self.scaler.scale(loss).backward()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+        self.schedular.step()
+        return _loss
 
     def _step(self,
-              data_loader: DataLoader,
+              batch: dict,
               precomputed_intermediate: bool=False) -> float:
-        """Training step (one pass over dataset)
+        """Training step (process one batch)
 
         Args:
-            data_loader (DataLoader): data loader over train dataset
+            batch (dict): batch data
             precomputed_intermediate (bool, optional): available already?.
                 Defaults to False.
                 if precomputed intermediate features are already available
                 * avoid recomputation of intermediate features
 
         Returns:
-            float: mean loss of all instances
+            float: loss value as float
         """
-        self.net.train()
-        torch.set_grad_enabled(True)
-        mean_loss = 0
-        pbar = tqdm(data_loader)
-        for batch_data in pbar:
-            self.optimizer.zero_grad()
-            batch_size = batch_data['batch_size']
-            out_ans, rep = self.net.forward(
-                batch_data, precomputed_intermediate)
-            if self.memory_bank is not None:
-                ind = batch_data['indices']
-                self.memory_bank[ind] = rep.detach().cpu().numpy()
-            loss = self._compute_loss(out_ans, batch_data)
-            mean_loss += loss.item()*batch_size
-            loss.backward()
-            self.optimizer.step()
-            self.schedular.step()
-            pbar.set_description(
-                f"loss: {loss.item():.5f}")
-            del batch_data
-        return mean_loss / data_loader.dataset.num_instances
+        self.optimizer.zero_grad()
+        out, rep = self.net.forward(batch, precomputed_intermediate)
+        if self.memory_bank is not None:
+            ind = batch['indices']
+            self.memory_bank[ind] = rep.detach().cpu().numpy()
+        loss = self._compute_loss(out, batch)
+        _loss = loss.item()
+        loss.backward()
+        self.optimizer.step()
+        self.schedular.step()
+        return _loss
 
     def _fit(
         self,
@@ -235,7 +217,7 @@ class ModelIS(ModelBase):
         for epoch in range(num_epochs):
             train_loader.dataset.step(self.memory_bank)
             tic = time.time()
-            avg_loss = self._step(train_loader)
+            avg_loss = self._epoch(train_loader)
             toc = time.time()
             self.logger.info(
                 f"Epoch: {epoch}, loss: {avg_loss:.6f}, time: {toc-tic:.2f} sec")
@@ -560,8 +542,7 @@ class EModelIS(ModelIS):
             emb = self.net.encode(batch_data['X'])
             # FIXME: the device may be different
             ind, vals = self.shortlister.query(emb.cpu().numpy(), top_k)
-            predicted_labels.update_block(
-                count, ind.cpu().numpy(), vals.cpu().numpy())
+            predicted_labels.update_block(count, ind, vals)
             count += batch_size
             del batch_data
         return predicted_labels.data(), math.nan

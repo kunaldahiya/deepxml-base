@@ -34,6 +34,7 @@ class ModelBase(object):
                  evaluater: Evaluater,
                  model_dir: str,
                  result_dir: str,
+                 use_amp: bool = True,
                  *args: Optional[Any],
                  **kwargs: Optional[Any]) -> None:
         """ 
@@ -59,8 +60,8 @@ class ModelBase(object):
         self.model_fname = "model"
         self.logger = self.get_logger(name=self.model_fname)
         self.tracking = Tracking()
-        self.device = self.net.device
-        self.scaler = None
+        self.device = str(self.net.device)
+        self.setup_amp(use_amp)
 
     def setup_amp(self, use_amp: bool) -> None:
         """Set up scaler for mixed precision training
@@ -68,8 +69,11 @@ class ModelBase(object):
         Args:
             use_amp (bool): use automatic mixed precision or not
         """
+        self.use_amp = use_amp
         if use_amp:
             self.scaler = torch.amp.GradScaler(self.device)
+        else:
+            self.scaler = None
 
     def get_logger(self, name: str='DeepXML', level: int=INFO) -> Logger:
         """Get logger object
@@ -170,40 +174,56 @@ class ModelBase(object):
         return self.criterion(_pred, _true)
 
     def _step_amp(self,
-              data_loader: DataLoader,
+              batch: dict,
               precomputed_intermediate: bool=False) -> float:
-        """Training step (one pass over dataset) for amp training
+        """Training step (process one batch)
 
         Args:
-            data_loader (DataLoader): data loader over train dataset
-            precomputed_intermediate (bool, optional): available already?. Defaults to False.
-            if precomputed intermediate features are already available
-            * avoid recomputation of intermediate features
+            batch (dict): batch data
+            precomputed_intermediate (bool, optional): available already?.
+                Defaults to False.
+                if precomputed intermediate features are already available
+                * avoid recomputation of intermediate features
 
         Returns:
-            float: mean loss of all instances
+            float: loss value as float
         """
-        self.net.train()
-        torch.set_grad_enabled(True)
-        mean_loss = 0
-        pbar = tqdm(data_loader)
-        for batch_data in pbar:
-            self.optimizer.zero_grad()
-            batch_size = batch_data['batch_size']
-            with torch.amp.autocast(self.device):
-                out_ans = self.net.forward(batch_data, precomputed_intermediate)
-                loss = self._compute_loss(out_ans, batch_data)
-            mean_loss += loss.item()*batch_size
-            self.scaler.scale(loss).backward()
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
-            self.schedular.step()
-            pbar.set_description(
-                f"loss: {loss.item():.5f}")
-            del batch_data
-        return mean_loss / data_loader.dataset.num_instances
+        self.optimizer.zero_grad()
+        with torch.amp.autocast(self.device):
+            out = self.net.forward(batch, precomputed_intermediate)
+            loss = self._compute_loss(out, batch)
+        _loss = loss.item()
+        self.scaler.scale(loss).backward()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+        self.schedular.step()
+        return _loss
 
     def _step(self,
+              batch: dict,
+              precomputed_intermediate: bool=False) -> float:
+        """Training step (process one batch)
+
+        Args:
+            batch (dict): batch data
+            precomputed_intermediate (bool, optional): available already?.
+                Defaults to False.
+                if precomputed intermediate features are already available
+                * avoid recomputation of intermediate features
+
+        Returns:
+            float: loss value as float
+        """
+        self.optimizer.zero_grad()
+        out = self.net.forward(batch, precomputed_intermediate)
+        loss = self._compute_loss(out, batch)
+        _loss = loss.item()
+        loss.backward()
+        self.optimizer.step()
+        self.schedular.step()
+        return _loss
+
+    def _epoch(self,
               data_loader: DataLoader,
               precomputed_intermediate: bool=False) -> float:
         """Training step (one pass over dataset)
@@ -222,18 +242,14 @@ class ModelBase(object):
         torch.set_grad_enabled(True)
         mean_loss = 0
         pbar = tqdm(data_loader)
-        for batch_data in pbar:
-            self.optimizer.zero_grad()
-            batch_size = batch_data['batch_size']
-            out_ans = self.net.forward(batch_data, precomputed_intermediate)
-            loss = self._compute_loss(out_ans, batch_data)
-            mean_loss += loss.item()*batch_size
-            loss.backward()
-            self.optimizer.step()
-            self.schedular.step()
-            pbar.set_description(
-                f"loss: {loss.item():.5f}")
-            del batch_data
+        for batch in pbar:
+            if self.use_amp:
+                _loss = self._step_amp(batch, precomputed_intermediate)
+            else:
+                _loss = self._step(batch, precomputed_intermediate)
+            mean_loss += _loss * batch['batch_size']
+            pbar.set_description(f"loss: {_loss:.5f}")
+            del batch
         return mean_loss / data_loader.dataset.num_instances
 
     def evaluate(
