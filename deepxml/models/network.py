@@ -247,14 +247,210 @@ class BaseNetwork(Module):
         return f"(Encoder): {self.encoder}\n(Label Encoder): {self.encoder_lbl}\n(Classifier): {self.classifier}"
 
 
-class XMLNetwork(BaseNetwork):
+class DeepXML(BaseNetwork):
+    """DeepXML: Base DeepXML class for different networks
+
+    Components:
+    * encoder: an encoder layer to encode the inputs (e.g. queries)
+    * transform: an layer to apply over the encoded inputs (e.g. dropout, residual)
+    * encoder_lbl: an encoder layer to encode the outputs (e.g. labels)
+        - encoder_lbl will be same as encoder unless it is passed explicitly
+    * transform_lbl: a transform layer over encoded output features (e.g. graph)
+    * classifier: explicit classifiers (e.g., 1-vs-All classifiers)
+        - Identity op as classifier if is not pass
+    """
+
+    def __init__(
+            self, 
+            config: str, 
+            args: Namespace=Namespace(),
+            encoder: Module=None, 
+            encoder_lbl: Module=None,
+            classifier: Module=None, 
+            transform: Module=None,
+            transform_lbl: Module=None, 
+            device="cuda") -> None:
+        """
+        Args:
+            config (str): json file containing the network components
+            args (Namespace): Values of placeholders can be taken from args
+                * "#ARGS.x;" value in config will be replaced with args.x
+            encoder (Module or None): encoder module for inputs or queries
+                - to encode given (raw) representation
+            encoder_lbl (Module or None): encoder module for output or labels
+                - to encode given (raw) representation
+            classifier (Module or None): Classifier module 
+                - can be identity or None if required
+            transform (Module or None): a layer to apply over the encoded inputs 
+                - e.g. dropout, residual
+            transform_lbl (Module or None): a layer to apply over the encoded outputs
+                - e.g. dropout, residual, graph
+            device (str, optional): device for network. Defaults to "cuda".
+        """
+        super(BaseNetwork, self).__init__()
+        self.device = torch.device(device)
+        if config is not None:
+            self._construct_from_config(parse_json(config, args))
+        elif encoder is not None:
+            self._construct_from_module(
+                encoder, encoder_lbl, classifier, transform, transform_lbl, args)
+        else:
+            raise NotImplementedError(
+                "Either of modules or config must be valid")
+
+    def _construct_from_module(
+            self, 
+            encoder: Module,
+            encoder_lbl: Module, 
+            classifier: Module, 
+            transform: Module,
+            transform_lbl: Module,
+            args: Namespace 
+        ) -> Module:
+        self.encoder = encoder
+        self.classifier = classifier
+
+        # if transform is None -> use identity
+        if self.transform is None:
+            self.transform =  self._construct_module()
+        else:
+            self.transform = transform
+
+        # if encoder_lbl is None -> use same as original encoder
+        # useful in sharing between input and output
+        if self.encoder_lbl is not None:
+            self.encoder_lbl = encoder_lbl
+        else:
+            self.encoder_lbl = encoder
+
+        # if transform_lbl is None -> use same as original transform
+        if self.transform_lbl is not None:
+            self.transform_lbl = transform_lbl
+        else:
+            self.transform = transform
+
+        if hasattr(self.encoder, 'repr_dims'):
+            self._repr_dims = self.encoder.repr_dims
+
+        #repr_dims must be provided if dimensionality 
+        # of transform is different than encoder
+        if hasattr(args, 'repr_dims'):
+            self._repr_dims = args.repr_dims
+
+    def _construct_from_config(
+            self, 
+            config: dict, 
+            device: str="cuda") -> Module:
+        """Construct the class from config
+
+        Args:
+            config (str): a json file consisting the archietcture
+            device (str, optional): device for model. Defaults to "cuda".
+
+        Returns:
+            Module: class instance
+        """
+        self.encoder = self._construct_encoder(config['encoder'])
+
+        # if transform not in config -> use identity
+        if 'transform' in config:
+            self.transform = self._construct_encoder(config['transform'])
+        else:
+            self.transform = self._construct_module()
+
+        #TODO: See if it is better for them to be None or as identity
+        if 'classifier' in config:
+            self.classifier = self._construct_classifier(config['classifier'])
+
+        # if encoder_lbl is unavailable -> use same as original encoder
+        # - useful in sharing between input and output
+        # transform_lbl may be provided
+        # - use case (encoder is shared but transform is different)
+        # - identity if not provided
+        if 'encoder_lbl' in config:
+            self.encoder_lbl = self._construct_encoder(config['encoder_lbl'])            
+            if 'transform_lbl' in config:
+                self.transform_lbl = self._construct_encoder(config['transform_lbl'])
+            else:
+                self.transform_lbl = self._construct_module()
+        else:
+            self.encoder_lbl = self.encoder
+            self.transform_lbl = self.transform
+
+        if hasattr(self.encoder, 'repr_dims'):
+            self._repr_dims = self.encoder.repr_dims
+
+        # user must ensure it is proper as per transform
+        if 'repr_dims' in config:
+            self._repr_dims = int(config['repr_dims'])
+
+    @classmethod
+    def from_modules(
+        cls, 
+        encoder: Module, 
+        encoder_lbl: Module,
+        classifier: Module, 
+        transform: Module,
+        transform_lbl: Module,
+        device: str="cuda") -> Module:
+        """Construct the class from already constructed modules
+        * useful when encoder and classifiers are already constructed
+
+        Args:
+            encoder (Module): To encode given (raw) representation
+            encoder_lbl (Module or None): encoder module for output or labels
+                - to encode given (raw) representation
+            classifier (Module): Classifier module (can be identity if required)
+                - e.g. dropout, residual
+            transform_lbl (Module or None): a layer to apply over the encoded outputs
+                - e.g. dropout, residual, graph
+            device (str, optional): device for model. Defaults to "cuda".
+
+        Returns:
+            Module: class instance
+        """
+        return cls(None, encoder, encoder_lbl,
+                   classifier, transform, transform_lbl, device=device)
+
+    def _encode(self, x: tuple, *args, **kwargs) -> Tensor:
+        """Encode an item using the given network 
+            (no transformation is applied)
+
+        Args:
+            x (tuple): #TODO
+
+        Returns:
+            torch.Tensor: Encoded item
+        """
+        return self.encoder(_to_device(x, self.device))
+
+
+    def encode(self, x: tuple, *args, **kwargs) -> Tensor:
+        """Encode an item using the given network (transform is applied)
+
+        Args:
+            x (tuple): #TODO
+
+        Returns:
+            torch.Tensor: Encoded item
+        """
+        return self.transform(self._encode(x))
+
+    def __repr__(self):
+        out = f"(Encoder): {self.encoder}\n(Transform): {self.transform}\n"
+        out += f"(Label Encoder): {self.encoder_lbl}\n(Label Transform): {self.transform_lbl}\n"
+        out += f"(Classifier): {self.classifier}"
+        return out
+
+
+class NetworkOVA(DeepXML):
     """
     Class to train extreme classifiers in brute force manner
     """
     pass
 
 
-class XMLNetworkIS(BaseNetwork):
+class NetworkIS(DeepXML):
     """
     Class to train extreme classifiers with shared shortlist
     """
@@ -275,7 +471,7 @@ class XMLNetworkIS(BaseNetwork):
             X, _to_device(batch['Y_s'], self.device)), X
 
 
-class SiameseNetworkIS(BaseNetwork):
+class SiameseNetworkIS(DeepXML):
     """
     Class to train encoder with shared shortlist
     """
@@ -286,6 +482,8 @@ class SiameseNetworkIS(BaseNetwork):
             encoder: Module=None, 
             encoder_lbl: Module=None,
             classifier: Module=None, 
+            transform: Module=None,
+            transform_lbl: Module=None, 
             device="cuda") -> None:
         """
         Args:
@@ -298,6 +496,10 @@ class SiameseNetworkIS(BaseNetwork):
                 - to encode given (raw) representation
             classifier (Module or None): Classifier module 
                 - can be identity or None if required
+            transform (Module or None): a layer to apply over the encoded inputs 
+                - e.g. dropout, residual
+            transform_lbl (Module or None): a layer to apply over the encoded outputs
+                - e.g. dropout, residual, graph
             device (str, optional): device for network. Defaults to "cuda".
         """
         super(SiameseNetworkIS, self).__init__(
@@ -306,6 +508,8 @@ class SiameseNetworkIS(BaseNetwork):
             encoder=encoder,
             encoder_lbl=encoder_lbl,
             classifier=classifier,
+            transform=transform,
+            transform_lbl=transform_lbl,
             device=device)
         if not hasattr(args, 'metric'):
             args.metric = 'cosine'
@@ -320,7 +524,7 @@ class SiameseNetworkIS(BaseNetwork):
         else:
             raise NotImplementedError("Unknown metric!")      
 
-    def encode_lbl(self, x: tuple) -> Tensor:
+    def _encode_lbl(self, x: tuple) -> Tensor:
         """Encode an item using the given network
 
         Args:
@@ -330,6 +534,17 @@ class SiameseNetworkIS(BaseNetwork):
             torch.Tensor: Encoded item
         """
         return self.encoder_lbl(_to_device(x, self.device))
+
+    def encode_lbl(self, x: tuple) -> Tensor:
+        """Encode an item using the given network
+
+        Args:
+            x (tuple): #TODO
+
+        Returns:
+            torch.Tensor: Encoded item
+        """
+        return self.transform_lbl(self._encode_lbl(x))
 
     def forward(self, batch, *args):
         """Forward pass
