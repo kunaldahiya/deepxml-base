@@ -277,6 +277,31 @@ class ModelIS(ModelBase):
             del batch_data
         return predicted_labels.data(), math.nan
 
+    def save(self, model_dir: str, fname: str, *args: Any) -> None:
+        """Save model on disk
+        * uses suffix: _network.pkl for network
+
+        Args:
+            model_dir (str): save model into this directory
+            fname (str): save model with this file name
+        """
+        super().save(model_dir, fname, args)
+        fname = os.path.join(
+            model_dir, fname+'.ann')
+        self.shortlister.save(fname)
+
+    def load(self, model_dir: str, fname: str, *args: Any) -> None:
+        """Load model from disk
+        * uses suffix: .ann for shortlister (ann index typically)
+
+        Args:
+            model_dir (str): load model from this directory
+            fname (str): load model with this file name
+        """
+        super().load(model_dir, fname, args)
+        fname = os.path.join(model_dir, fname+'.ann')
+        self.shortlister.load(fname)
+
 
 class XModelIS(ModelIS):
     """

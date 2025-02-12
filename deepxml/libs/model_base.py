@@ -544,27 +544,27 @@ class ModelBase(object):
 
     def save(self, model_dir: str, fname: str, *args: Any) -> None:
         """Save model on disk
-        * uses suffix: _network.pkl for network
+        * uses suffix: network.pt for network
 
         Args:
             model_dir (str): save model into this directory
             fname (str): save model with this file name
         """
         fname = os.path.join(
-            model_dir, fname+'_network.pkl')
+            model_dir, fname+'.network.pt')
         self.logger.info("Saving model at: {}".format(fname))
         state_dict = self.net.state_dict()
         torch.save(state_dict, fname)
 
     def load(self, model_dir: str, fname: str, *args: Any) -> None:
         """Load model from disk
-        * uses suffix: _network.pkl for network
+        * uses suffix: network.pt for network
 
         Args:
-            model_dir (str): save model into this directory
-            fname (str): save model with this file name
+            model_dir (str): load model from this directory
+            fname (str): load model with this file name
         """
-        fname_net = fname+'_network.pkl'
+        fname_net = fname+'.network.pt'
         state_dict = torch.load(
             os.path.join(model_dir, model_dir, fname_net))
         self.net.load_state_dict(state_dict)
