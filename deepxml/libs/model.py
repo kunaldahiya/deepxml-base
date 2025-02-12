@@ -384,12 +384,13 @@ class XModelIS(ModelIS):
                 num_workers=num_workers)
         self._fit(train_loader, validation_loader,
                   num_epochs, validate_interval)
+        self.post_process_for_inference()
 
     def get_label_representations(self) -> Union[Tensor, ndarray]:
         return self.net.classifier.get_weights()
 
     def post_process_for_inference(self):
-        raise NotImplementedError("")
+        self._fit_shortlister(self.get_label_representations())
 
     def _predict(self):
         raise NotImplementedError("")
@@ -498,6 +499,7 @@ class EModelIS(ModelIS):
                 num_workers=num_workers)
         self._fit(train_loader, validation_loader,
                   num_epochs, validate_interval)
+        self.post_process_for_inference(train_dataset)
 
     def get_label_representations(
             self, 
@@ -547,8 +549,8 @@ class EModelIS(ModelIS):
             del batch_data
         return predicted_labels.data(), math.nan
 
-    def post_process_for_inference(self):
-        raise NotImplementedError("")
+    def post_process_for_inference(self, dataset: DatasetBase) -> None:
+        self._fit_shortlister(self.get_label_representations(dataset))
 
     def _predict(self):
         raise NotImplementedError("")
