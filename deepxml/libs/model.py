@@ -433,6 +433,9 @@ class EModelIS(ModelIS):
     selected from positive labels of other documents in the mini-batch
 
     """    
+    def _setup(self, dataset):
+        self._init_memory_bank(dataset)
+
     def _init_memory_bank(self, dataset):
         self.memory_bank = np.zeros(
             (len(dataset), self.net.repr_dims),
@@ -504,7 +507,7 @@ class EModelIS(ModelIS):
             sampling_t=sampling_params.type, # must be implicit
             num_workers=num_workers,
             shuffle=shuffle)
-        self._init_memory_bank(train_dataset)
+        self._setup(train_dataset)
         validation_loader = None
         if validate_interval < num_epochs:
             self.logger.info("Loading validation data.")
