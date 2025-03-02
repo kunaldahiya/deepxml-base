@@ -167,7 +167,7 @@ class BaseNetwork(Module):
         """
         return cls(None, encoder, encoder_lbl, classifier, device=device)
 
-    def _construct_module(self, config: str=dict) -> Module:
+    def _construct_module(self, config: dict={}) -> Module:
         if config is None:
             return nn.Identity()
         return construct_module(config)
@@ -368,14 +368,17 @@ class DeepXML(BaseNetwork):
         # - use case (encoder is shared but transform is different)
         # - identity if not provided
         if 'encoder_lbl' in config:
-            self.encoder_lbl = self._construct_encoder(config['encoder_lbl'])            
+            self.encoder_lbl = self._construct_encoder(config['encoder_lbl'])
             if 'transform_lbl' in config:
-                self.transform_lbl = self._construct_encoder(config['transform_lbl'])
+                self.transform_lbl = self._construct_module(config['transform_lbl'])
             else:
                 self.transform_lbl = self._construct_module()
         else:
             self.encoder_lbl = self.encoder
-            self.transform_lbl = self.transform
+            if 'transform_lbl' in config:
+                self.transform_lbl = self._construct_module(config['transform_lbl'])
+            else:
+                self.transform_lbl = self.transform
 
         if hasattr(self.encoder, 'repr_dims'):
             self._repr_dims = self.encoder.repr_dims
