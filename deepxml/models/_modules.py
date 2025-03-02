@@ -18,7 +18,7 @@ class _Identity(torch.nn.Module):
         pass
 
 
-ELEMENTS = {
+MODS = {
     'dropout': torch.nn.Dropout,
     'batchnorm1d': torch.nn.BatchNorm1d,
     'linear': torch.nn.Linear,

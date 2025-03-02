@@ -10,6 +10,8 @@ from argparse import Namespace
 import torch.nn.functional as F
 from .modules import parse_json, construct_module
 from .utils import cosine_sim, ip_sim
+from ._modules import MODS
+
 
 
 def _to_device(
@@ -170,7 +172,7 @@ class BaseNetwork(Module):
     def _construct_module(self, config: dict={}) -> Module:
         if config is None:
             return nn.Identity()
-        return construct_module(config)
+        return construct_module(config, MODS)
 
     @property
     def repr_dims(self) -> int:

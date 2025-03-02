@@ -1,7 +1,7 @@
 import re
 import json
 import torch.nn as nn
-from ._modules import ELEMENTS
+from ._modules import MODS
 
 
 def parse_json(file, ARGS):
@@ -12,22 +12,22 @@ def parse_json(file, ARGS):
     return json.loads(schema)
 
 
-def _construct_module(key, args):
+def _construct_module(key, args, MODS=MODS):
     # TODO: Check for extendibility
     try:
-        return ELEMENTS[key](**args)
+        return MODS[key](**args)
     except KeyError:
         raise NotImplementedError("Unknown module!!")
 
 
-def construct_module(config):
+def construct_module(config, MODS=MODS):
     if len(config) == 0:
-        return _construct_module('identity', {})
+        return _construct_module('identity', {}, MODS)
     elif len(config) == 1:
         k, v = next(iter(config.items()))
-        return _construct_module(k, v)
+        return _construct_module(k, v, MODS)
     else:
-        modules = [_construct_module(k, v) for k, v in config.items()] 
+        modules = [_construct_module(k, v, MODS) for k, v in config.items()] 
         return nn.Sequential(*modules)
 
 
