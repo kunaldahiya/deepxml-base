@@ -299,6 +299,21 @@ class DeepXML(BaseNetwork):
         else:
             raise NotImplementedError(
                 "Either of modules or config must be valid")
+        if not hasattr(args, 'freeze_encoder'):
+            args.freeze_encoder = False
+        self._freeze_encoder(args.freeze_encoder)
+
+    def _freeze_encoder(self, freeze: bool = False) -> None:
+        """Freeze or unfreeze the encoder and encoder_lbl parameters
+
+        Args:
+            freeze (bool): If True, freeze the parameters. If False, unfreeze.
+        """
+        freeze = not freeze
+        for param in self.encoder.parameters():
+            param.requires_grad = freeze
+        for param in self.encoder_lbl.parameters():
+            param.requires_grad = freeze
 
     def _construct_from_module(
             self, 
