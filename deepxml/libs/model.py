@@ -136,7 +136,7 @@ class ModelIS(ModelBase):
 
     def _step_amp(self,
               batch: dict,
-              precomputed_intermediate: bool=False) -> float:
+              *args, **kwargs) -> float:
         """Training step (process one batch)
 
         Args:
@@ -151,7 +151,7 @@ class ModelIS(ModelBase):
         """
         self.optimizer.zero_grad()
         with torch.amp.autocast(self.device):
-            out, rep = self.net.forward(batch, precomputed_intermediate)
+            out, rep = self.net.forward(batch, *args, **kwargs)
             loss = self._compute_loss(out, batch)
         if self.memory_bank is not None:
             ind = batch['indices']
@@ -165,7 +165,7 @@ class ModelIS(ModelBase):
 
     def _step(self,
               batch: dict,
-              precomputed_intermediate: bool=False) -> float:
+              *args, **kwargs) -> float:
         """Training step (process one batch)
 
         Args:
@@ -179,7 +179,7 @@ class ModelIS(ModelBase):
             float: loss value as float
         """
         self.optimizer.zero_grad()
-        out, rep = self.net.forward(batch, precomputed_intermediate)
+        out, rep = self.net.forward(batch, *args, **kwargs)
         if self.memory_bank is not None:
             ind = batch['indices']
             self.memory_bank[ind] = rep.detach().cpu().numpy()
@@ -195,7 +195,8 @@ class ModelIS(ModelBase):
         train_loader: DataLoader,
         validation_loader: Union[DataLoader, None],
         num_epochs: int=10,
-        validation_interval: int=5
+        validation_interval: int=5,
+        *args, **kwargs
     ) -> None:
         """
         Train for the given data loader
@@ -217,7 +218,7 @@ class ModelIS(ModelBase):
         for epoch in range(num_epochs):
             train_loader.dataset.step(self.memory_bank)
             tic = time.time()
-            avg_loss = self._epoch(train_loader)
+            avg_loss = self._epoch(train_loader, *args, **kwargs)
             toc = time.time()
             self.logger.info(
                 f"Epoch: {epoch}, loss: {avg_loss:.6f}, time: {toc-tic:.2f} sec")
@@ -270,9 +271,8 @@ class ModelIS(ModelBase):
             batch_size = batch_data['batch_size']
             emb = self.net.encode(batch_data['X'])
             # FIXME: the device may be different
-            ind, vals = self.shortlister.query(emb, top_k)
-            predicted_labels.update_block(
-                count, ind.cpu().numpy(), vals.cpu().numpy())
+            ind, vals = self.shortlister.query(emb.cpu().numpy(), top_k)
+            predicted_labels.update_block(count, ind, vals)
             count += batch_size
             del batch_data
         return predicted_labels.data(), math.nan
@@ -312,9 +312,8 @@ class XModelIS(ModelIS):
     selected from positive labels of other documents in the mini-batch
 
     """    
-    def init_classifier(self, dataset, batch_size=128):
-        #TODO
-        raise NotImplementedError()
+    def _init_classifier(self, dataset, batch_size=128):
+        pass
 
     def _init_memory_bank(self, dataset):
         # FIXME: fix the length of the vector
@@ -322,6 +321,10 @@ class XModelIS(ModelIS):
             (len(dataset), self.net.repr_dims),
             dtype='float32'
         )
+
+    def _setup(self, dataset):
+        self._init_memory_bank(dataset)
+        self._init_classifier(dataset)
 
     def fit(
         self,
@@ -340,6 +343,7 @@ class XModelIS(ModelIS):
         feature_t: str='dense',
         normalize_labels=False,
         validate_interval=5,
+        cache_doc_representations=False,
         surrogate_mapping=None, **kwargs
     ) -> None:
         """Train the model on the basis of given data and parameters
@@ -382,14 +386,50 @@ class XModelIS(ModelIS):
             normalize_features=normalize_features,
             normalize_labels=normalize_labels,
             surrogate_mapping=surrogate_mapping)
+        self._setup(train_dataset)
+
+        if cache_doc_representations and not trn_data:
+            self.logger.info(
+                "Computing and reusing encoder representations "
+                "to save computations.")
+            trn_data = {}
+            trn_data['X'] = self.get_embeddings(
+                data=train_dataset.features.data,
+                encoder=self.net.encode,
+                batch_size=batch_size,
+                feature_t=train_dataset.features._type,
+                num_workers=num_workers
+            )
+            trn_data['Yf'] = self.get_embeddings(
+                data=train_dataset.label_features.data,
+                encoder=self.net.encode,
+                batch_size=batch_size,
+                feature_t=train_dataset.label_features._type,
+                num_workers=num_workers
+            )
+
+            trn_data['Y'] = train_dataset.labels.data
+
+            train_dataset = self._create_dataset(
+                data_dir=None,
+                fname=None,
+                data=trn_data,
+                mode='train',
+                feature_t='dense',
+                sampling_t=sampling_params.type,
+                sampling_params=sampling_params,
+                normalize_features=normalize_features,
+                normalize_labels=normalize_labels,
+                surrogate_mapping=surrogate_mapping)
+
         train_loader = self._create_data_loader(
             train_dataset,
             batch_size=batch_size,
-            feature_t=feature_t,
+            feature_t=train_dataset.feature_type,
             sampling_t=sampling_params.type, # must be implicit
             num_workers=num_workers,
             shuffle=shuffle)
-        self._init_memory_bank(train_dataset)
+
         validation_loader = None
         if validate_interval < num_epochs:
             self.logger.info("Loading validation data.")
@@ -408,11 +448,15 @@ class XModelIS(ModelIS):
                 batch_size=batch_size,
                 num_workers=num_workers)
         self._fit(train_loader, validation_loader,
-                  num_epochs, validate_interval)
+                  num_epochs, validate_interval,
+                  cached=cache_doc_representations)
         self.post_process_for_inference()
 
     def get_label_representations(self) -> Union[Tensor, ndarray]:
-        return self.net.classifier.get_weights()
+        lbl_repr = self.net.classifier.get_weights()
+        if isinstance(lbl_repr, torch.Tensor):
+            lbl_repr = lbl_repr.numpy()
+        return lbl_repr
 
     def post_process_for_inference(self):
         self._fit_shortlister(self.get_label_representations())

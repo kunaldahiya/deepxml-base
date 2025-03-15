@@ -175,7 +175,7 @@ class ModelBase(object):
 
     def _step_amp(self,
               batch: dict,
-              precomputed_intermediate: bool=False) -> float:
+              *args, **kwargs) -> float:
         """Training step (process one batch)
 
         Args:
@@ -190,7 +190,7 @@ class ModelBase(object):
         """
         self.optimizer.zero_grad()
         with torch.amp.autocast(self.device):
-            out = self.net.forward(batch, precomputed_intermediate)
+            out = self.net.forward(batch, *args, **kwargs)
             loss = self._compute_loss(out, batch)
         _loss = loss.item()
         self.scaler.scale(loss).backward()
@@ -225,7 +225,7 @@ class ModelBase(object):
 
     def _epoch(self,
               data_loader: DataLoader,
-              precomputed_intermediate: bool=False) -> float:
+              *args, **kwargs) -> float:
         """Training step (one pass over dataset)
 
         Args:
@@ -244,9 +244,9 @@ class ModelBase(object):
         pbar = tqdm(data_loader)
         for batch in pbar:
             if self.use_amp:
-                _loss = self._step_amp(batch, precomputed_intermediate)
+                _loss = self._step_amp(batch, *args, **kwargs)
             else:
-                _loss = self._step(batch, precomputed_intermediate)
+                _loss = self._step(batch, *args, **kwargs)
             mean_loss += _loss * batch['batch_size']
             pbar.set_description(f"loss: {_loss:.5f}")
             del batch

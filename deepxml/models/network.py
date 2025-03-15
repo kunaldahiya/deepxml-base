@@ -459,7 +459,7 @@ class NetworkIS(DeepXML):
     """
     Class to train extreme classifiers with shared shortlist
     """
-    def forward(self, batch, *args):
+    def forward(self, batch, cached=False, *args):
         """Forward pass
 
         * Assumes features are dense if X_w is None
@@ -471,7 +471,10 @@ class NetworkIS(DeepXML):
         Returns:
             torch.Tensor: output of the network (typically logits)
         """
-        X = self.encode(_to_device(batch['X'], self.device))
+        if cached:
+            X = _to_device(batch['X'], self.device)
+        else:
+            X = self.encode(_to_device(batch['X'], self.device))
         return self.classifier(
             X, _to_device(batch['Y_s'], self.device)), X
 
