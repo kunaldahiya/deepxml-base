@@ -28,24 +28,25 @@ class ModelBase(object):
     """
     def __init__(self,
                  net: torch.nn.Module,
-                 criterion: _Loss,
-                 optimizer: Optimizer,
-                 schedular: LRScheduler,
-                 evaluater: Evaluater,
                  model_dir: str,
                  result_dir: str,
+                 criterion: _Loss=None,
+                 optimizer: Optimizer=None,
+                 schedular: LRScheduler=None,
+                 evaluater: Evaluater=None,
                  use_amp: bool = True,
                  *args: Optional[Any],
                  **kwargs: Optional[Any]) -> None:
-        """ 
+        """
         Args:
             net (torch.nn.Module): network object
-            criterion (_Loss): object to compute loss
-            optimizer (Optimizer): Optimizer
-            schedular (LRScheduler): learning rate schedular
-            evaluater (Evaluater): to evaluate
             model_dir (str): directory to save model etc.
             result_dir (str): directory to save results etc.
+            criterion (_Loss, optional): to compute loss. Defaults to None.
+            optimizer (Optimizer, optional): Optimizer. Defaults to None.
+            schedular (LRScheduler, optional): learning rate schedular. Defaults to None.
+            evaluater (Evaluater, optional): to evaluate. Defaults to None.
+            use_amp (bool, optional): mixed precision. Defaults to True.
         """
         self.net = net
         self.criterion = criterion
@@ -282,7 +283,7 @@ class ModelBase(object):
             predicted_labels,
             filter_map=getattr(data_loader.dataset, 'label_filter', None))
         self.logger.info("Model saved after epoch: {}".format(epoch))
-        self.save_checkpoint(self.model_dir, epoch+1)
+        self.save_checkpoint(epoch+1)
         self.tracking.last_saved_epoch = epoch
         self.logger.info(
             f"{_prec.summary()}, loss: {val_avg_loss:.6f}, "\
@@ -320,7 +321,7 @@ class ModelBase(object):
                 f"Epoch: {epoch}, loss: {avg_loss:.6f}, time: {toc-tic:.2f} sec")
             if validation_loader is not None and epoch % validation_interval == 0:
                 self.validate(validation_loader, epoch)
-        self.save_checkpoint(self.model_dir, epoch+1)
+        self.save_checkpoint(epoch+1)
 
     @torch.no_grad()
     def _validate(
@@ -438,6 +439,72 @@ class ModelBase(object):
                   num_epochs, validate_interval)
 
     @torch.no_grad()
+    def _predict(
+            self, 
+            data_loader: DataLoader, 
+            k: int=10) -> Tuple[spmatrix, float]:
+        """predict for the given data loader
+
+        Args:
+            data_loader (DataLoader): data loader 
+                over validation dataset
+            k (int, optional): consider top k predictions. 
+                Defaults to 10.
+
+        Returns:
+            tuple (spmatrix, float) 
+                - predictions for the given dataset
+                - mean loss over the validation dataset
+        """
+        self.net.eval()
+        top_k = min(k, data_loader.dataset.num_labels)
+        predicted_labels = SMatrix(
+            n_rows=data_loader.dataset.num_instances,
+            n_cols=data_loader.dataset.num_labels,
+            nnz=top_k)
+        count = 0
+        for batch in tqdm(data_loader):
+            batch_size = batch['batch_size']
+            out = self.net.forward(batch)
+            vals, ind = torch.topk(out, k=k, dim=-1, sorted=False)
+            predicted_labels.update_block(
+                count, ind.cpu().numpy(), vals.cpu().numpy())
+            count += batch_size
+            del batch
+        return predicted_labels.data()
+
+    def predict(
+            self,
+            data_dir: str,
+            dataset: str,
+            fname: str,
+            data: dict=None,
+            num_workers: int=4,
+            batch_size: int=128,
+            normalize_features: bool=True,
+            normalize_labels: bool=False,
+            k: int=100,
+            feature_t: str='sparse'
+            ): 
+        self.logger.addHandler(
+            logging.FileHandler(os.path.join(self.result_dir, 'log_predict.txt')))
+        dataset = self._create_dataset(
+            os.path.join(data_dir, dataset),
+            fname,
+            data=data,
+            mode='predict',
+            feature_t=feature_t,
+            normalize_features=normalize_features,
+            normalize_labels=normalize_labels)
+        data_loader = self._create_data_loader(
+            dataset,
+            feature_t=feature_t,
+            batch_size=batch_size,
+            num_workers=num_workers)
+        predicted_labels = self._predict(data_loader, k)
+        return predicted_labels
+
+    @torch.no_grad()
     def _embeddings(
         self,
         data_loader: DataLoader,
@@ -542,31 +609,28 @@ class ModelBase(object):
             shuffle=False)
         return self._embeddings(data_loader, encoder, fname_out)
 
-    def save(self, model_dir: str, fname: str, *args: Any) -> None:
+    def save(self, fname: str, *args: Any) -> None:
         """Save model on disk
         * uses suffix: network.pt for network
 
         Args:
-            model_dir (str): save model into this directory
             fname (str): save model with this file name
         """
         fname = os.path.join(
-            model_dir, fname+'.network.pt')
+            self.model_dir, fname+'.network.pt')
         self.logger.info("Saving model at: {}".format(fname))
         state_dict = self.net.state_dict()
         torch.save(state_dict, fname)
 
-    def load(self, model_dir: str, fname: str, *args: Any) -> None:
+    def load(self, fname: str, *args: Any) -> None:
         """Load model from disk
         * uses suffix: network.pt for network
 
         Args:
-            model_dir (str): load model from this directory
             fname (str): load model with this file name
         """
         fname_net = fname+'.network.pt'
-        state_dict = torch.load(
-            os.path.join(model_dir, model_dir, fname_net))
+        state_dict = torch.load(os.path.join(self.model_dir, fname_net))
         self.net.load_state_dict(state_dict)
 
     @property
@@ -578,7 +642,7 @@ class ModelBase(object):
         """
         return self.net.model_size
 
-    def save_checkpoint(self, model_dir, epoch, do_purge=True):
+    def save_checkpoint(self, epoch, do_purge=True):
         """
         Save checkpoint on disk
         * save network, optimizer and loss
@@ -601,9 +665,9 @@ class ModelBase(object):
         }
         torch.save(
             checkpoint, 
-            os.path.join(model_dir, f'checkpoint_{epoch}.pkl'))
+            os.path.join(self.model_dir, f'checkpoint_{epoch}.pkl'))
 
-    def load_checkpoint(self, model_dir, fname, epoch):
+    def load_checkpoint(self, fname, epoch):
         """
         Load checkpoint from disk
         * load network, optimizer and loss
@@ -616,7 +680,7 @@ class ModelBase(object):
         epoch: int
             checkpoint after this epoch (used in file name)
         """
-        fname = os.path.join(model_dir, f'checkpoint_{epoch}.pkl')
+        fname = os.path.join(self.model_dir, f'checkpoint_{epoch}.pkl')
         checkpoint = torch.load(open(fname, 'rb'))
         self.net.load_state_dict(checkpoint['net'])
         self.criterion.load_state_dict(checkpoint['criterion'])
