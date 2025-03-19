@@ -36,13 +36,13 @@ class ModelIS(ModelBase):
     def __init__(
             self,
             net: torch.nn.Module,
-            criterion: _Loss,
-            optimizer: Optimizer,
-            schedular: LRScheduler,
-            evaluater: Evaluater,
             model_dir: str,
             result_dir: str,
-            shortlister: Shortlist,
+            criterion: _Loss=None,
+            optimizer: Optimizer=None,
+            schedular: LRScheduler=None,
+            evaluater: Evaluater=None,
+            shortlister: Shortlist=None,
             use_amp: bool = True,
             *args: Optional[Any],
             **kwargs: Optional[Any]
@@ -50,13 +50,14 @@ class ModelIS(ModelBase):
         """ 
         Args:
             net (torch.nn.Module): network object
-            criterion (_Loss): object to compute loss
-            optimizer (Optimizer): Optimizer
-            schedular (LRScheduler): learning rate schedular
-            evaluater (Evaluater): to evaluate
             model_dir (str): directory to save model etc.
             result_dir (str): directory to save results etc.
+            criterion (_Loss, optional): to compute loss. Defaults to None.
+            optimizer (Optimizer, optional): Optimizer. Defaults to None.
+            schedular (LRScheduler, optional): learning rate schedular. Defaults to None.
+            evaluater (Evaluater, optional): to evaluate. Defaults to None.
             shortlister (Shortlist): to be used at inference time
+            use_amp (bool, optional): mixed precision. Defaults to True.
         """
         super().__init__(
             net=net,
@@ -225,7 +226,7 @@ class ModelIS(ModelBase):
             if validation_loader is not None and epoch % validation_interval == 0:
                 self.validate(validation_loader, epoch)
             self.update_order(train_loader)
-        self.save_checkpoint(self.model_dir, epoch+1)
+        self.save_checkpoint(epoch+1)
 
     def create_batch_sampler(self, dataset, batch_size, shuffle):
         if shuffle:
@@ -277,29 +278,61 @@ class ModelIS(ModelBase):
             del batch_data
         return predicted_labels.data(), math.nan
 
-    def save(self, model_dir: str, fname: str, *args: Any) -> None:
+    @torch.no_grad()
+    def _predict(
+            self, 
+            data_loader: DataLoader, 
+            k: int=10) -> Tuple[spmatrix, float]:
+        """predict for the given data loader
+
+        Args:
+            data_loader (DataLoader): data loader 
+                over validation dataset
+            k (int, optional): consider top k predictions. 
+                Defaults to 10.
+
+        Returns:
+            tuple (spmatrix, float) 
+                - predictions for the given dataset
+                - mean loss over the validation dataset
+        """
+        self.net.eval()
+        top_k = min(k, data_loader.dataset.num_labels)
+        predicted_labels = SMatrix(
+            n_rows=data_loader.dataset.num_instances,
+            n_cols=data_loader.dataset.num_labels,
+            nnz=top_k)
+        count = 0
+        for batch in tqdm(data_loader):
+            batch_size = batch['batch_size']
+            emb = self.net.encode(batch['X'])
+            # FIXME: the device may be different
+            ind, vals = self.shortlister.query(emb.cpu().numpy(), top_k)
+            predicted_labels.update_block(count, ind, vals)
+            count += batch_size
+            del batch
+        return predicted_labels.data()
+
+    def save(self, fname: str, *args: Any) -> None:
         """Save model on disk
         * uses suffix: _network.pkl for network
 
         Args:
-            model_dir (str): save model into this directory
             fname (str): save model with this file name
         """
-        super().save(model_dir, fname, args)
-        fname = os.path.join(
-            model_dir, fname+'.ann')
+        super().save(fname, args)
+        fname = os.path.join(self.model_dir, fname+'.ann')
         self.shortlister.save(fname)
 
-    def load(self, model_dir: str, fname: str, *args: Any) -> None:
+    def load(self, fname: str, *args: Any) -> None:
         """Load model from disk
         * uses suffix: .ann for shortlister (ann index typically)
 
         Args:
-            model_dir (str): load model from this directory
             fname (str): load model with this file name
         """
-        super().load(model_dir, fname, args)
-        fname = os.path.join(model_dir, fname+'.ann')
+        super().load(fname, args)
+        fname = os.path.join(self.model_dir, fname+'.ann')
         self.shortlister.load(fname)
 
 
@@ -367,9 +400,7 @@ class XModelIS(ModelIS):
         """
         """
         TODO:
-        * Support for frozen and pre-computed representation
         * Classifier initialization
-        * Post-processing for inference
         """ 
         # Reset the logger to dump in train log file
         self.logger.addHandler(
@@ -461,12 +492,6 @@ class XModelIS(ModelIS):
     def post_process_for_inference(self):
         self._fit_shortlister(self.get_label_representations())
 
-    def _predict(self):
-        raise NotImplementedError("")
-
-    def predict(self): 
-        raise NotImplementedError("")
-
 
 class EModelIS(ModelIS):
     """
@@ -501,8 +526,8 @@ class EModelIS(ModelIS):
         shuffle: bool=True,
         normalize_features=True,
         feature_t: str='dense',
-        normalize_labels=False,
-        validate_interval=5,
+        normalize_labels: bool=False,
+        validate_interval: int=5,
         surrogate_mapping=None, **kwargs
     ) -> None:
         """Train the model on the basis of given data and parameters
@@ -623,9 +648,3 @@ class EModelIS(ModelIS):
 
     def post_process_for_inference(self, dataset: DatasetBase) -> None:
         self._fit_shortlister(self.get_label_representations(dataset))
-
-    def _predict(self):
-        raise NotImplementedError("")
-
-    def predict(self): 
-        raise NotImplementedError("")
