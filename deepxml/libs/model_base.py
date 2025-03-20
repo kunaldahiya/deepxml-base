@@ -161,17 +161,17 @@ class ModelBase(object):
     def _create_collate_fn(self, feature_t, sampling_t, op_feature_t):
         return collate(feature_t, sampling_t, op_feature_t)
 
-    def _compute_loss(self, _pred: Tensor, batch_data: dict) -> Tensor:
+    def _compute_loss(self, _pred: Tensor, batch: dict) -> Tensor:
         """Compute loss
 
         Args:
             pred (Tensor): predictions from the network
-            batch_data (dict): dict containing (local) ground truth
+            batch (dict): dict containing (local) ground truth
 
         Returns:
             Tensor: computed loss
         """
-        _true = batch_data['Y'].to(self.device)
+        _true = batch['Y'].to(self.device)
         return self.criterion(_pred, _true)
 
     def _step_amp(self,
@@ -242,8 +242,7 @@ class ModelBase(object):
         self.net.train()
         torch.set_grad_enabled(True)
         mean_loss = 0
-        pbar = tqdm(data_loader)
-        for batch in pbar:
+        for batch in (pbar := tqdm(data_loader)):
             if self.use_amp:
                 _loss = self._step_amp(batch, *args, **kwargs)
             else:
@@ -261,6 +260,7 @@ class ModelBase(object):
             filter_map: str=None):
         return self.evaluater(_true, _pred, k=k, filter_map=filter_map)
 
+    @torch.no_grad()
     def validate(
             self,
             data_loader: DataLoader,
@@ -313,7 +313,7 @@ class ModelBase(object):
             if precomputed intermediate features are already available
             * avoid recomputation of intermediate features
         """
-        for epoch in range(num_epochs):
+        for epoch in tqdm(range(num_epochs), desc="Epoch"):
             tic = time.time()
             avg_loss = self._step(train_loader)
             toc = time.time()
@@ -349,16 +349,16 @@ class ModelBase(object):
             n_cols=data_loader.dataset.num_labels,
             nnz=top_k)
         count = 0
-        for batch_data in tqdm(data_loader):
-            batch_size = batch_data['batch_size']
-            out_ans = self.net.forward(batch_data)
-            loss = self._compute_loss(out_ans, batch_data)
-            mean_loss += loss.item()*batch_size
+        for batch in tqdm(data_loader, desc="Validating"):
+            bsz = batch['batch_size']
+            out_ans = self.net.forward(batch)
+            loss = self._compute_loss(out_ans, batch)
+            mean_loss += loss.item()*bsz
             vals, ind = torch.topk(out_ans, k=top_k, dim=-1, sorted=False)
             predicted_labels.update_block(
                 count, ind.cpu().numpy(), vals.cpu().numpy())
-            count += batch_size
-            del batch_data
+            count += bsz
+            del batch
         return predicted_labels.data(), \
             mean_loss / data_loader.dataset.num_instances
 
@@ -442,7 +442,7 @@ class ModelBase(object):
     def _predict(
             self, 
             data_loader: DataLoader, 
-            k: int=10) -> Tuple[spmatrix, float]:
+            k: int=10) -> spmatrix:
         """predict for the given data loader
 
         Args:
@@ -452,9 +452,7 @@ class ModelBase(object):
                 Defaults to 10.
 
         Returns:
-            tuple (spmatrix, float) 
-                - predictions for the given dataset
-                - mean loss over the validation dataset
+            spmatrix: predictions for the given dataset
         """
         self.net.eval()
         top_k = min(k, data_loader.dataset.num_labels)
@@ -463,13 +461,12 @@ class ModelBase(object):
             n_cols=data_loader.dataset.num_labels,
             nnz=top_k)
         count = 0
-        for batch in tqdm(data_loader):
-            batch_size = batch['batch_size']
+        for batch in tqdm(data_loader, desc="Predicting"):
             out = self.net.forward(batch)
             vals, ind = torch.topk(out, k=k, dim=-1, sorted=False)
             predicted_labels.update_block(
                 count, ind.cpu().numpy(), vals.cpu().numpy())
-            count += batch_size
+            count += batch['batch_size']
             del batch
         return predicted_labels.data()
 
@@ -485,9 +482,26 @@ class ModelBase(object):
             normalize_labels: bool=False,
             k: int=100,
             feature_t: str='sparse'
-            ): 
+            ) -> spmatrix: 
+        """Make predictions for given file
+
+        Args:
+            data_dir (str): data directory
+            dataset (str): dataset name / directory inside data_dir
+            fname (str): name of the file
+            data (dict, optional): Preloaded data. Defaults to None.
+            num_workers (int, optional): #workers. Defaults to 4.
+            batch_size (int, optional): Batch size while inferring. Defaults to 128.
+            normalize_features (bool, optional): Normalize features. Defaults to True.
+            k (int, optional): consider top k predictions.. Defaults to 100.
+            feature_t (str, optional): feature type. Defaults to 'sparse'.
+
+        Returns:
+            spmatrix: predictions for the given dataset
+        """
         self.logger.addHandler(
             logging.FileHandler(os.path.join(self.result_dir, 'log_predict.txt')))
+        self.logger.info("Loading test data.")
         dataset = self._create_dataset(
             os.path.join(data_dir, dataset),
             fname,
@@ -501,7 +515,11 @@ class ModelBase(object):
             feature_t=feature_t,
             batch_size=batch_size,
             num_workers=num_workers)
+        tic = time.time()
         predicted_labels = self._predict(data_loader, k)
+        toc = time.time()
+        avg_time = (toc - tic) * 1000 / len(dataset)
+        self.logger.info(f"Avg. inference time: {avg_time:.2f} msec")
         return predicted_labels
 
     @torch.no_grad()
@@ -543,10 +561,10 @@ class ModelBase(object):
                 len(data_loader.dataset), self.net.repr_dims),
                 dtype=_dtype)
         idx = 0
-        for batch_data in tqdm(data_loader, desc="Computing Embeddings"):
-            bsz = batch_data['batch_size']
-            out_ans = encoder(batch_data['X'])
-            embeddings[idx :idx+bsz, :] = out_ans.detach().cpu().numpy()
+        for batch in tqdm(data_loader, desc="Computing Embeddings"):
+            bsz = batch['batch_size']
+            out = encoder(batch['X'])
+            embeddings[idx :idx+bsz, :] = out.detach().cpu().numpy()
             idx += bsz
         torch.cuda.empty_cache()
         if fname_out is not None:  # Flush all changes to disk

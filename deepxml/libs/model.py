@@ -119,7 +119,7 @@ class ModelIS(ModelBase):
 
         Args:
             pred (Tensor): predictions from the network
-            batch_data (dict): dict containing (local) ground truth
+            batch (dict): dict containing (local) ground truth
 
         Returns:
             Tensor: computed loss
@@ -216,7 +216,7 @@ class ModelIS(ModelBase):
             if precomputed intermediate features are already available
             * avoid recomputation of intermediate features
         """
-        for epoch in range(num_epochs):
+        for epoch in tqdm(range(num_epochs), desc="Epoch"):
             train_loader.dataset.step(self.memory_bank)
             tic = time.time()
             avg_loss = self._epoch(train_loader, *args, **kwargs)
@@ -268,21 +268,20 @@ class ModelIS(ModelBase):
             n_cols=data_loader.dataset.num_labels,
             nnz=top_k)
         count = 0
-        for batch_data in tqdm(data_loader):
-            batch_size = batch_data['batch_size']
-            emb = self.net.encode(batch_data['X'])
+        for batch in tqdm(data_loader, desc="Validating"):
+            emb = self.net.encode(batch['X'])
             # FIXME: the device may be different
             ind, vals = self.shortlister.query(emb.cpu().numpy(), top_k)
             predicted_labels.update_block(count, ind, vals)
-            count += batch_size
-            del batch_data
+            count += batch['batch_size']
+            del batch
         return predicted_labels.data(), math.nan
 
     @torch.no_grad()
     def _predict(
             self, 
             data_loader: DataLoader, 
-            k: int=10) -> Tuple[spmatrix, float]:
+            k: int=10) -> spmatrix:
         """predict for the given data loader
 
         Args:
@@ -292,9 +291,7 @@ class ModelIS(ModelBase):
                 Defaults to 10.
 
         Returns:
-            tuple (spmatrix, float) 
-                - predictions for the given dataset
-                - mean loss over the validation dataset
+            spmatrix: predictions for the given dataset
         """
         self.net.eval()
         top_k = min(k, data_loader.dataset.num_labels)
@@ -303,13 +300,12 @@ class ModelIS(ModelBase):
             n_cols=data_loader.dataset.num_labels,
             nnz=top_k)
         count = 0
-        for batch in tqdm(data_loader):
-            batch_size = batch['batch_size']
+        for batch in tqdm(data_loader, desc="Predicting"):
             emb = self.net.encode(batch['X'])
             # FIXME: the device may be different
             ind, vals = self.shortlister.query(emb.cpu().numpy(), top_k)
             predicted_labels.update_block(count, ind, vals)
-            count += batch_size
+            count += batch['batch_size']
             del batch
         return predicted_labels.data()
 
@@ -636,14 +632,13 @@ class EModelIS(ModelIS):
             n_cols=data_loader.dataset.num_labels,
             nnz=top_k)
         count = 0
-        for batch_data in tqdm(data_loader):
-            batch_size = batch_data['batch_size']
-            emb = self.net.encode(batch_data['X'])
+        for batch in tqdm(data_loader, desc="Validating"):
+            emb = self.net.encode(batch['X'])
             # FIXME: the device may be different
             ind, vals = self.shortlister.query(emb.cpu().numpy(), top_k)
             predicted_labels.update_block(count, ind, vals)
-            count += batch_size
-            del batch_data
+            count += batch['batch_size']
+            del batch
         return predicted_labels.data(), math.nan
 
     def post_process_for_inference(self, dataset: DatasetBase) -> None:
