@@ -1,10 +1,15 @@
 from typing import Optional, Callable, Any
+from numpy import ndarray
 
+import math
 import torch
+import numpy as np
 import torch.nn as nn
 from torch import Tensor, LongTensor
 from torch.nn.parameter import Parameter
 import torch.nn.functional as F
+from xclib.utils.sparse import normalize
+from xclib.utils.clustering import cluster_balance, b_kmeans_dense
 
 
 class Embedding(nn.Module):
@@ -15,7 +20,7 @@ class Embedding(nn.Module):
 
     Args:
         vocabulary_dims (int): vocalubary size        
-        embedding_dims (int, optional): dimension of embeddings. Defaults to 300
+        embedding_dim (int, optional): dimension of embeddings. Defaults to 300
         padding_idx (int, optional): padding index. Defaults to 0.
             * index for <PAD>; embedding is not updated
             * Values other than 0 are not yet tested
@@ -113,8 +118,8 @@ class Embedding(nn.Module):
 
         Returns:
             Tensor: embedding for each sample
-                Shape: (batch_size, seq_len, embedding_dims), if reduction is None
-                Shape: (batch_size, embedding_dims), otherwise
+                Shape: (batch_size, seq_len, embedding_dim), if reduction is None
+                Shape: (batch_size, embedding_dim), otherwise
 
         """
         x = F.embedding(
@@ -148,3 +153,112 @@ class Embedding(nn.Module):
         s += ')'
         return s.format(name=self.__class__.__name__, **self.__dict__)
  
+
+class EmbeddingBank(torch.nn.Module):
+    """Embedding bank to store some vectors
+        - supports mapping (can be one-to-one or many-to-one)
+        - supports clustering
+    """
+    def __init__(
+            self, 
+            embedding_dim: int, 
+            num_embeddings: int,
+            num_items: int=None, 
+            mapping: ndarray=None, 
+            device: str="cpu") -> None:
+        """
+        Args:
+            embedding_dim (int): Embedding dimensionality
+            num_embeddings (int): Store these many embeddings
+            num_items (int, optional): Defaults to None.
+                Total number of items (as per original data)
+                - one-to-one: each item will have its separate embedding
+                - many-to-one: multiple items may share embeddings
+            mapping (np.ndarray, optional): Defaults to None.
+                item to embedding mapping.
+                - if mapping is None and num_items == num_embeddings
+                    then simple arange is used as mapping
+            device (str, optional): _description_. Defaults to "cpu".
+        """
+        super(EmbeddingBank, self).__init__()
+
+        if mapping is not None and num_items is None:
+            num_items = len(mapping)
+
+        self.padding_idx = 0
+        self.embedding_dim = embedding_dim
+        self.num_embeddings = num_embeddings
+        self.num_items = num_items
+        self.weight = torch.nn.Parameter(torch.Tensor(num_embeddings, embedding_dim))
+        self.device = device
+
+        if mapping is None and num_items == num_embeddings:
+            mapping = np.arange(num_items)
+
+        if mapping is not None:
+            self.register_buffer('mapping', torch.LongTensor(mapping))
+        else:
+            self.register_buffer('mapping', torch.zeros((num_items,)).long())
+        self.initialize()
+
+    def _power_two_check(self, n: int) -> bool:
+        assert math.log2(n).is_integer(), \
+            "n_embeddings must be power of 2 (with current clustering style)"
+
+    def _cluster_and_set_mapping(
+            self, 
+            X: ndarray, 
+            num_threads: int=6) -> None:
+        """Cluster and set mapping
+
+        Args:
+            X (ndarray): Representations of items
+            num_threads (int, optional): #threads to use. Defaults to 6.
+        """
+        self._power_two_check(self.num_embeddings)
+        _, mapping = cluster_balance(
+            X=normalize(X.astype('float32'), copy=True),
+            clusters=[np.arange(len(X), dtype='int')],
+            num_clusters=self.num_embeddings,
+            splitter=b_kmeans_dense,
+            num_threads=num_threads,
+            verbose=True)
+        self.set_mapping(mapping)
+
+    def cluster_and_set_mapping(
+            self, 
+            X: ndarray, 
+            num_threads: int=6) -> None:
+        """Cluster and set mapping
+
+        Args:
+            X (ndarray): Representations of items
+            num_threads (int, optional): #threads to use. Defaults to 6.
+        """
+        self._cluster_and_set_mapping(X, num_threads)
+
+    def set_mapping(self, mapping: ndarray) -> None:
+        """Manually set the mapping when available
+
+        Args:
+            mapping (ndarray): mapping from item to vector in bank
+        """
+        self.mapping.copy_(
+            torch.LongTensor(mapping).to(self.mapping.get_device()))
+
+    def __getitem__(self, ind: int | Tensor) -> Tensor:
+        return self.weight[self.mapping[ind]].squeeze()
+    
+    def forward(self, ind: int | Tensor) -> Tensor:
+        return self.__getitem__(ind)
+
+    @property
+    def repr_dims(self) -> int:
+        return self.embedding_dim
+
+    def initialize(self) -> None:
+        torch.nn.init.xavier_uniform_(self.weight.data)
+
+    def __repr__(self) -> str:
+        s = '{name}({num_embeddings}, {embedding_dim}, {num_items}, {device})'
+        return s.format(name=self.__class__.__name__, **self.__dict__)
