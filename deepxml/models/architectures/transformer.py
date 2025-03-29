@@ -28,6 +28,56 @@ def mean_pooling(emb: Tensor, mask: Tensor) -> Tensor:
     return sum_emb / sum_mask
 
 
+class TransformerEncoderBag(torch.nn.Module):
+    def __init__(
+            self, 
+            d_model: int=512, 
+            n_head: int=1,
+            dim_feedforward: int=2048,
+            dropout: float=0.1,
+            activation: str='gelu',
+            norm_first: bool=False):
+        """A wrapper over TransformerEncoderLayer to apply self-attention
+        over a bag-of-embeddings (order is ignored)
+
+        Args:
+            d_model (int, optional): Dim of input embeddings. Defaults to 512.
+            n_head (int, optional): number of heads. Defaults to 1.
+            dim_feedforward (int, optional): Defaults to 2048.
+                Dim of internal linear layer.
+            dropout (float, optional): Dropout probability. Defaults to 0.1.
+            activation (str, optional): Activation function. Defaults to 'gelu'.
+            norm_first (bool, optional): first normalize? Defaults to False.
+        """
+        super(TransformerEncoderBag, self).__init__()
+        self.encoder_layer = torch.nn.TransformerEncoderLayer(
+            d_model, n_head,
+            dim_feedforward,
+            dropout,
+            activation=activation,
+            norm_first=norm_first)
+
+    def forward(self, x: Tensor | List[Tensor]) -> Tensor:
+        """Apply self attention and return a single vector for each instance
+
+        Args:
+            x (Tensor | List[Tensor]): 
+                - List is over tensors of size (N, E). 
+                    These will be stacked along a new axis and then pooled
+                - Tensor: Already stacked tensor with size (S, N, E)
+                    Note that here batch is not the first dimension
+
+        Returns:
+            Tensor: Pooled Tensor with size (N, E)
+        """
+        if isinstance(x, list):
+            x = torch.stack(x) 
+        # src is expected to have shape (S, N, E) where S is the sequence length,
+        # N is the batch size, and E is the embedding dimension
+        output = self.encoder_layer(x) # output has shape (S, N, E)
+        return torch.mean(output, 0).squeeze()
+
+
 class BaseTransformer(torch.nn.Module):
     """Base class for Transformers
 

@@ -2,7 +2,7 @@ import torch
 from .classifiers.ova import OVA, OVSS
 from .layers.residual import Residual
 from .architectures.astec import Astec
-from .architectures.transformer import STransformer 
+from .architectures.transformer import STransformer, TransformerEncoderBag
 
 
 class _Identity(torch.nn.Module):
@@ -30,6 +30,7 @@ MODS = {
     '_identity': _Identity,
     'astec': Astec,
     'stransformer': STransformer,
+    'transformerbag': TransformerEncoderBag,
     'ova': OVA,
     'ovss': OVSS
 }
