@@ -165,6 +165,7 @@ class EmbeddingBank(torch.nn.Module):
             num_embeddings: int,
             num_items: int=None, 
             mapping: ndarray=None, 
+            requires_grad: bool=True,
             device: str="cpu") -> None:
         """
         Args:
@@ -178,6 +179,7 @@ class EmbeddingBank(torch.nn.Module):
                 item to embedding mapping.
                 - if mapping is None and num_items == num_embeddings
                     then simple arange is used as mapping
+            requires_grad (bool, optional): Want to update the bank? Defaults to True.
             device (str, optional): _description_. Defaults to "cpu".
         """
         super(EmbeddingBank, self).__init__()
@@ -189,7 +191,9 @@ class EmbeddingBank(torch.nn.Module):
         self.embedding_dim = embedding_dim
         self.num_embeddings = num_embeddings
         self.num_items = num_items
-        self.weight = torch.nn.Parameter(torch.Tensor(num_embeddings, embedding_dim))
+        self.weight = torch.nn.Parameter(
+            torch.Tensor(num_embeddings, embedding_dim),
+            requires_grad=requires_grad)
         self.device = device
 
         if mapping is None and num_items == num_embeddings:
