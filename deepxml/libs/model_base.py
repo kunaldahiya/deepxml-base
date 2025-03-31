@@ -616,6 +616,10 @@ class ModelBase(object):
             classifier_t=None,
             sampling_t=None,
             **kwargs)
+        # Adjust batch size if the remainder of len(dataset) / batch_size is 1
+        if len(dataset) % batch_size == 1:
+            batch_size -= 1
+
         data_loader = DataLoader(
             dataset,
             batch_size=batch_size,
@@ -627,7 +631,7 @@ class ModelBase(object):
             shuffle=False)
         return self._embeddings(data_loader, encoder, fname_out)
 
-    def save(self, fname: str, *args: Any) -> None:
+    def save(self, fname: str='model', *args: Any) -> None:
         """Save model on disk
         * uses suffix: network.pt for network
 

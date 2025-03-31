@@ -309,7 +309,7 @@ class ModelIS(ModelBase):
             del batch
         return predicted_labels.data()
 
-    def save(self, fname: str, *args: Any) -> None:
+    def save(self, fname: str='model', *args: Any) -> None:
         """Save model on disk
         * uses suffix: _network.pkl for network
 
