@@ -252,7 +252,10 @@ class EmbeddingBank(torch.nn.Module):
 
     def __getitem__(self, ind: int | Tensor) -> Tensor:
         return self.weight[self.mapping[ind]].squeeze()
-    
+
+    def __setitem__(self, ind: int | Tensor, value: Tensor) -> None:
+        self.weight.data[self.mapping[ind]] = value
+
     def forward(self, ind: int | Tensor) -> Tensor:
         return self.__getitem__(ind)
 
