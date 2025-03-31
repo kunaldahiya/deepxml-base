@@ -332,7 +332,7 @@ class ModelIS(ModelBase):
         self.shortlister.load(fname)
 
 
-class XModelIS(ModelIS):
+class XCModelIS(ModelIS):
     """
     For models that do XC training with implicit sampling
 
@@ -489,7 +489,7 @@ class XModelIS(ModelIS):
         self._fit_shortlister(self.get_label_representations())
 
 
-class EModelIS(ModelIS):
+class EmbeddingModelIS(ModelIS):
     """
     For models that to train embedding or siamese models with implicit sampling
 
