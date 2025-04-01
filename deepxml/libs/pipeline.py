@@ -20,11 +20,11 @@ from xclib.utils.shortlist import Shortlist
 from xclib.utils.matrix import SMatrix
 from torch.utils.data import DataLoader
 from .batching import MySampler
-from .model_base import ModelBase
+from .pipeline_base import PipelineBase
 from .evaluater import Evaluater
 
 
-class ModelIS(ModelBase):
+class PipelineIS(PipelineBase):
     """
     Generic class for models with implicit sampling
     
@@ -332,7 +332,7 @@ class ModelIS(ModelBase):
         self.shortlister.load(fname)
 
 
-class XCModelIS(ModelIS):
+class XCPipelineIS(PipelineIS):
     """
     For models that do XC training with implicit sampling
 
@@ -413,7 +413,7 @@ class XCModelIS(ModelIS):
             normalize_features=normalize_features,
             normalize_labels=normalize_labels,
             surrogate_mapping=surrogate_mapping)
-        self._setup(train_dataset)
+        self._setup(train_dataset, batch_size, num_workers)
 
         if cache_doc_representations and not trn_data:
             self.logger.info(
@@ -489,7 +489,7 @@ class XCModelIS(ModelIS):
         self._fit_shortlister(self.get_label_representations())
 
 
-class EmbeddingModelIS(ModelIS):
+class EmbeddingPipelineIS(PipelineIS):
     """
     For models that to train embedding or siamese models with implicit sampling
 
@@ -498,10 +498,10 @@ class EmbeddingModelIS(ModelIS):
     selected from positive labels of other documents in the mini-batch
 
     """    
-    def _setup(self, dataset):
-        self._init_memory_bank(dataset)
+    def _setup(self, dataset, *args, **kwargs):
+        self._init_memory_bank(dataset, *args, **kwargs)
 
-    def _init_memory_bank(self, dataset):
+    def _init_memory_bank(self, dataset, *args, **kwargs):
         self.memory_bank = np.zeros(
             (len(dataset), self.net.repr_dims),
             dtype='float32'
@@ -572,7 +572,7 @@ class EmbeddingModelIS(ModelIS):
             sampling_t=sampling_params.type, # must be implicit
             num_workers=num_workers,
             shuffle=shuffle)
-        self._setup(train_dataset)
+        self._setup(train_dataset, batch_size, num_workers)
         validation_loader = None
         if validate_interval < num_epochs:
             self.logger.info("Loading validation data.")

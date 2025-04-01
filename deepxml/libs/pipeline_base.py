@@ -23,7 +23,7 @@ from .collator import collate
 from .evaluater import Evaluater
 
 
-class ModelBase(object):
+class PipelineBase(object):
     """Base class for Deep extreme multi-label learning
     """
     def __init__(self,
