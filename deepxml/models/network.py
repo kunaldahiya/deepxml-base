@@ -456,6 +456,9 @@ class DeepXML(BaseNetwork):
         """
         return self.transform(self._encode(x))
 
+    def initialize_classifier(self, weight):
+        self.classifier.initialize(weight)
+
     def __repr__(self):
         out = f"(Encoder): {self.encoder}\n(Transform): {self.transform}\n"
         out += f"(Label Encoder): {self.encoder_lbl}\n(Label Transform): {self.transform_lbl}\n"
