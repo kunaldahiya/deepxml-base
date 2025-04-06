@@ -10,7 +10,7 @@ from argparse import Namespace
 import torch.nn.functional as F
 from .modules import parse_json, construct_module
 from .utils import cosine_sim, ip_sim
-from ._modules import MODS
+from .module_factory import ModuleFactory
 
 
 
@@ -169,10 +169,13 @@ class BaseNetwork(Module):
         """
         return cls(None, encoder, encoder_lbl, classifier, device=device)
 
+    def _module_factory(self) -> dict:
+        return ModuleFactory
+
     def _construct_module(self, config: dict={}) -> Module:
         if config is None:
             return nn.Identity()
-        return construct_module(config, MODS)
+        return construct_module(config, self._module_factory())
 
     @property
     def repr_dims(self) -> int:
@@ -587,3 +590,7 @@ class SiameseNetworkIS(DeepXML):
         X = self.encode(_to_device(batch['X'], self.device))
         Z = self.encode_lbl(_to_device(batch['Z'], self.device))
         return self.similarity(X, Z), X
+
+    def _construct_classifier(self, *args, **kwargs) -> Module:
+        # Force identity classifier for this class
+        return self._construct_module()
