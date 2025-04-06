@@ -1,9 +1,11 @@
-from . import xdataset, sdataset
+from torch.utils.data import Dataset
+
 from argparse import Namespace
+from .dataset_factory import DatasetFactory
 from .dataset_base import DatasetTensor
 
 
-def _construct_dataset_class(sampling_t: str):
+def _construct_dataset_class(sampling_t: str, dataset_factory: dict) -> Dataset:
     """
     Return the dataset class
 
@@ -13,29 +15,23 @@ def _construct_dataset_class(sampling_t: str):
         - implicit: (no-explicit negatives) in-batch sampling
         - explicit: explicitly sample negatives
         - brute: use all negatives
+        - tensor: no negative sampling (e.g., iterate over data points)
     """
-    # assumes sampling is true
-    if sampling_t == 'implicit':
-        return sdataset.DatasetIS
-    elif sampling_t == 'explicit':
-        return sdataset.DatasetES
-    elif sampling_t == 'brute':
-        return xdataset.Dataset
-    else:
-        return DatasetTensor
+    return dataset_factory.get(sampling_t, DatasetTensor)
 
 
-def construct_dataset(data_dir,
-                      fname=None,
-                      data=None,
-                      mode='train',
-                      sampling_t='brute',
-                      normalize_features=True,
-                      normalize_labels=True,
+def construct_dataset(data_dir: str,
+                      fname: str | dict=None,
+                      data: dict=None,
+                      mode: str='train',
+                      sampling_t: str='brute',
+                      normalize_features: bool=True,
+                      normalize_labels: bool=True,
                       sampling_params: Namespace=Namespace(),
-                      keep_invalid=False,
-                      feature_t='sparse',
-                      max_len=-1,
+                      keep_invalid: bool=False,
+                      feature_t: str='sparse',
+                      max_len: int=-1,
+                      dataset_factory: dict=DatasetFactory,
                       **kwargs):    
     if fname is None:
         fname = {'f_features': None,
@@ -47,7 +43,7 @@ def construct_dataset(data_dir,
         assert sampling_t == sampling_params.type, \
             "type in sampling_params must match sampling_t"
 
-    cls = _construct_dataset_class(sampling_t)
+    cls = _construct_dataset_class(sampling_t, dataset_factory)
     return cls(data_dir=data_dir,
                **fname,
                data=data,

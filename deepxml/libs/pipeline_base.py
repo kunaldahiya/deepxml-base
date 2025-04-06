@@ -19,6 +19,7 @@ from .tracking import Tracking
 from torch.utils.data import DataLoader
 from xclib.utils.matrix import SMatrix
 from .dataset import construct_dataset
+from .dataset_factory import DatasetFactory
 from .collator import collate
 from .evaluater import Evaluater
 
@@ -95,6 +96,17 @@ class PipelineBase(object):
         logger.setLevel(level=level)
         return logger
 
+    def _dataset_factory(self):
+        """This function allows the child method to inherit the class
+        to define its own datasets. They can just redefine the class 
+        to load from their local code. Otherwise more code change is required
+
+        Returns:
+            dict: A dataset factory that can return the Dataset class based 
+            on the key (sampling_t)
+        """
+        return DatasetFactory 
+
     def _create_dataset(
             self,
             data_dir,
@@ -115,6 +127,7 @@ class PipelineBase(object):
                 feature_t=feature_t,
                 normalize_features=normalize_features,
                 normalize_labels=normalize_labels,
+                dataset_factory=self._dataset_factory(),
                 **kwargs
             )
 
@@ -420,7 +433,7 @@ class PipelineBase(object):
             shuffle=shuffle)
         self.logger.info("Loading validation data.")
         validation_loader = None
-        if validate_interval < num_epochs:
+        if validate_interval > 0 and validate_interval < num_epochs:
             validation_dataset = self._create_dataset(
                 os.path.join(data_dir, dataset),
                 val_fname,
