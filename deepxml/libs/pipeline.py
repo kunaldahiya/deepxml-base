@@ -317,8 +317,9 @@ class PipelineIS(PipelineBase):
             fname (str): save model with this file name
         """
         super().save(fname, args)
-        fname = os.path.join(self.model_dir, fname+'.ann')
-        self.shortlister.save(fname)
+        if self.shortlister is not None:
+            fname = os.path.join(self.model_dir, fname+'.ann')
+            self.shortlister.save(fname)
 
     def load(self, fname: str, *args: Any) -> None:
         """Load model from disk
@@ -328,8 +329,9 @@ class PipelineIS(PipelineBase):
             fname (str): load model with this file name
         """
         super().load(fname, args)
-        fname = os.path.join(self.model_dir, fname+'.ann')
-        self.shortlister.load(fname)
+        if self.shortlister is not None:
+            fname = os.path.join(self.model_dir, fname+'.ann')
+            self.shortlister.load(fname)
 
 
 class XCPipelineIS(PipelineIS):
@@ -373,6 +375,7 @@ class XCPipelineIS(PipelineIS):
         normalize_labels=False,
         validate_interval=5,
         cache_doc_representations=False,
+        inference_t: str='mips',
         surrogate_mapping=None, **kwargs
     ) -> None:
         """Train the model on the basis of given data and parameters
@@ -477,7 +480,7 @@ class XCPipelineIS(PipelineIS):
         self._fit(train_loader, validation_loader,
                   num_epochs, validate_interval,
                   cached=cache_doc_representations)
-        self.post_process_for_inference()
+        self.post_process_for_inference(inference_t)
 
     def get_label_representations(self) -> Union[Tensor, ndarray]:
         lbl_repr = self.net.classifier.get_weights()
@@ -485,8 +488,12 @@ class XCPipelineIS(PipelineIS):
             lbl_repr = lbl_repr.numpy()
         return lbl_repr
 
-    def post_process_for_inference(self):
-        self._fit_shortlister(self.get_label_representations())
+    def post_process_for_inference(self, inference_t: str=None) -> None:
+        self.shortlister = None
+        if inference_t is not None:
+            self.logger.info(
+                f"Creating the index for inference with {inference_t} type.")
+            self._fit_shortlister(self.get_label_representations())
 
 
 class EmbeddingPipelineIS(PipelineIS):
@@ -524,6 +531,7 @@ class EmbeddingPipelineIS(PipelineIS):
         feature_t: str='dense',
         normalize_labels: bool=False,
         validate_interval: int=5,
+        inference_t: str=None,
         surrogate_mapping=None, **kwargs
     ) -> None:
         """Train the model on the basis of given data and parameters
@@ -592,7 +600,7 @@ class EmbeddingPipelineIS(PipelineIS):
                 num_workers=num_workers)
         self._fit(train_loader, validation_loader,
                   num_epochs, validate_interval)
-        self.post_process_for_inference(train_dataset)
+        self.post_process_for_inference(train_dataset, inference_t)
 
     def get_label_representations(
             self, 
@@ -641,5 +649,12 @@ class EmbeddingPipelineIS(PipelineIS):
             del batch
         return predicted_labels.data(), math.nan
 
-    def post_process_for_inference(self, dataset: DatasetBase) -> None:
-        self._fit_shortlister(self.get_label_representations(dataset))
+    def post_process_for_inference(
+            self, 
+            dataset: DatasetBase, 
+            inference_t: str=None) -> None:
+        self.shortlister = None
+        if inference_t is not None:
+            self.logger.info(
+                f"Creating the index for inference with {inference_t} type.")
+            self._fit_shortlister(self.get_label_representations(dataset))
