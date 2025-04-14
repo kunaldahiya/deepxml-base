@@ -7,6 +7,7 @@ from torch.optim import Optimizer
 from scipy.sparse import spmatrix
 from .dataset_base import DatasetBase
 from torch.optim.lr_scheduler import LRScheduler
+from torch.utils.data import Dataset
 
 
 import os
@@ -74,7 +75,7 @@ class PipelineIS(PipelineBase):
 
     def _create_data_loader(
         self,
-        dataset: DatasetBase,
+        dataset: Dataset,
         prefetch_factor: int=5,
         batch_size: int=128,
         feature_t: str='sparse',
@@ -87,7 +88,7 @@ class PipelineIS(PipelineBase):
         """Create data loader for given dataset
 
         Args:
-            dataset (DatasetBase): Dataset object
+            dataset (Dataset): Dataset object
             prefetch_factor (int, optional): Defaults to 5
                 used in the data loader. 
             batch_size (int, optional): Defaults to 128
@@ -228,7 +229,11 @@ class PipelineIS(PipelineBase):
             self.update_order(train_loader)
         self.save_checkpoint(epoch+1)
 
-    def create_batch_sampler(self, dataset, batch_size, shuffle):
+    def create_batch_sampler(
+            self, 
+            dataset: Dataset, 
+            batch_size: int, 
+            shuffle: bool) -> torch.utils.data.sampler.BatchSampler:
         if shuffle:
             order = dataset.indices_permutation()
         else:
@@ -239,7 +244,7 @@ class PipelineIS(PipelineBase):
     def get_label_representations(self) -> Union[Tensor, ndarray]:
         raise NotImplementedError("")
 
-    def _fit_shortlister(self, X):
+    def _fit_shortlister(self, X: Dataset) -> None:
         self.shortlister.fit(X)
 
     @torch.no_grad()
@@ -343,19 +348,26 @@ class XCPipelineIS(PipelineIS):
     selected from positive labels of other documents in the mini-batch
 
     """    
-    def _init_classifier(self, dataset, batch_size=128):
+    def _init_classifier(self, *args, **kwargs) -> None:
         pass
 
-    def _init_memory_bank(self, dataset):
+    def _init_memory_bank(self, dataset: Dataset) -> None:
         # FIXME: fix the length of the vector
         self.memory_bank = np.zeros(
             (len(dataset), self.net.repr_dims),
             dtype='float32'
         )
 
-    def _setup(self, dataset):
+    def _setup(
+            self, 
+            dataset: DatasetBase, 
+            batch_size: int=128, 
+            num_workers: int=6) -> None:
         self._init_memory_bank(dataset)
-        self._init_classifier(dataset)
+        self._init_classifier(
+            dataset, 
+            batch_size=batch_size, 
+            num_workers=num_workers)
 
     def fit(
         self,
@@ -604,8 +616,8 @@ class EmbeddingPipelineIS(PipelineIS):
 
     def get_label_representations(
             self, 
-            dataset, 
-            batch_size=128) -> Union[Tensor, ndarray]:
+            dataset: Dataset, 
+            batch_size: int=128) -> Union[Tensor, ndarray]:
         self.net.eval()
         return self.get_embeddings(
             data=dataset.label_features.data,
@@ -651,7 +663,7 @@ class EmbeddingPipelineIS(PipelineIS):
 
     def post_process_for_inference(
             self, 
-            dataset: DatasetBase, 
+            dataset: Dataset, 
             inference_t: str=None) -> None:
         self.shortlister = None
         if inference_t is not None:
