@@ -418,7 +418,7 @@ class XCPipelineIS(PipelineIS):
             logging.FileHandler(os.path.join(self.result_dir, 'log_train.txt'))) 
         self.logger.info("Loading training data.")
         train_dataset = self._create_dataset(
-            os.path.join(data_dir, dataset),
+            data_dir,
             trn_fname,
             data=trn_data,
             mode='train',
@@ -476,7 +476,7 @@ class XCPipelineIS(PipelineIS):
         if validate_interval < num_epochs:
             self.logger.info("Loading validation data.")
             validation_dataset = self._create_dataset(
-                os.path.join(data_dir, dataset),
+                data_dir,
                 val_fname,
                 data=val_data,
                 mode='predict',
@@ -501,11 +501,12 @@ class XCPipelineIS(PipelineIS):
         return lbl_repr
 
     def post_process_for_inference(self, inference_t: str=None) -> None:
-        self.shortlister = None
         if inference_t is not None:
             self.logger.info(
                 f"Creating the index for inference with {inference_t} type.")
             self._fit_shortlister(self.get_label_representations())
+        else:
+            self.shortlister = None
 
 
 class EmbeddingPipelineIS(PipelineIS):
@@ -529,7 +530,6 @@ class EmbeddingPipelineIS(PipelineIS):
     def fit(
         self,
         data_dir: str,
-        dataset: str,
         trn_fname: str,
         val_fname: str,
         sampling_params: Namespace,
@@ -550,7 +550,6 @@ class EmbeddingPipelineIS(PipelineIS):
 
         Args:
             data_dir (str): load data from this directory when data is None
-            dataset (str): dataset name
             trn_fname (str): file names for training data
             val_fname (str): file names for validation data
             trn_data (dict, optional): loaded train data. Defaults to None.
@@ -574,7 +573,7 @@ class EmbeddingPipelineIS(PipelineIS):
             logging.FileHandler(os.path.join(self.result_dir, 'log_train.txt'))) 
         self.logger.info("Loading training data.")
         train_dataset = self._create_dataset(
-            os.path.join(data_dir, dataset),
+            data_dir,
             trn_fname,
             data=trn_data,
             mode='train',
@@ -597,7 +596,7 @@ class EmbeddingPipelineIS(PipelineIS):
         if validate_interval < num_epochs:
             self.logger.info("Loading validation data.")
             validation_dataset = self._create_dataset(
-                os.path.join(data_dir, dataset),
+                data_dir,
                 val_fname,
                 data=val_data,
                 mode='predict',
@@ -665,8 +664,9 @@ class EmbeddingPipelineIS(PipelineIS):
             self, 
             dataset: Dataset, 
             inference_t: str=None) -> None:
-        self.shortlister = None
         if inference_t is not None:
             self.logger.info(
                 f"Creating the index for inference with {inference_t} type.")
             self._fit_shortlister(self.get_label_representations(dataset))
+        else:
+            self.shortlister = None

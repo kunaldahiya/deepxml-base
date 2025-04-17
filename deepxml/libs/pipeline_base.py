@@ -378,7 +378,6 @@ class PipelineBase(object):
     def fit(
         self,
         data_dir: str,
-        dataset: str,
         trn_fname: str,
         val_fname: str,
         trn_data: dict=None,
@@ -397,7 +396,6 @@ class PipelineBase(object):
 
         Args:
             data_dir (str): load data from this directory when data is None
-            dataset (str): dataset name
             trn_fname (str): file names for training data
             val_fname (str): file names for validation data
             trn_data (dict, optional): loaded train data. Defaults to None.
@@ -417,7 +415,7 @@ class PipelineBase(object):
             logging.FileHandler(os.path.join(self.result_dir, 'log_train.txt'))) 
         self.logger.info("Loading training data.")
         train_dataset = self._create_dataset(
-            os.path.join(data_dir, dataset),
+            data_dir,
             trn_fname,
             data=trn_data,
             mode='train',
@@ -435,7 +433,7 @@ class PipelineBase(object):
         validation_loader = None
         if validate_interval > 0 and validate_interval < num_epochs:
             validation_dataset = self._create_dataset(
-                os.path.join(data_dir, dataset),
+                data_dir,
                 val_fname,
                 data=val_data,
                 mode='predict',
@@ -486,7 +484,6 @@ class PipelineBase(object):
     def predict(
             self,
             data_dir: str,
-            dataset: str,
             fname: str,
             data: dict=None,
             num_workers: int=4,
@@ -500,7 +497,6 @@ class PipelineBase(object):
 
         Args:
             data_dir (str): data directory
-            dataset (str): dataset name / directory inside data_dir
             fname (str): name of the file
             data (dict, optional): Preloaded data. Defaults to None.
             num_workers (int, optional): #workers. Defaults to 4.
@@ -516,7 +512,7 @@ class PipelineBase(object):
             logging.FileHandler(os.path.join(self.result_dir, 'log_predict.txt')))
         self.logger.info("Loading test data.")
         dataset = self._create_dataset(
-            os.path.join(data_dir, dataset),
+            data_dir,
             fname,
             data=data,
             mode='predict',
@@ -665,7 +661,8 @@ class PipelineBase(object):
             fname (str): load model with this file name
         """
         fname_net = fname+'.network.pt'
-        state_dict = torch.load(os.path.join(self.model_dir, fname_net))
+        state_dict = torch.load(
+            os.path.join(self.model_dir, fname_net), weights_only=True)
         self.net.load_state_dict(state_dict)
 
     @property
@@ -716,7 +713,7 @@ class PipelineBase(object):
             checkpoint after this epoch (used in file name)
         """
         fname = os.path.join(self.model_dir, f'checkpoint_{epoch}.pkl')
-        checkpoint = torch.load(open(fname, 'rb'))
+        checkpoint = torch.load(open(fname, 'rb'), weights_only=True)
         self.net.load_state_dict(checkpoint['net'])
         self.criterion.load_state_dict(checkpoint['criterion'])
         if self.optimizer:
