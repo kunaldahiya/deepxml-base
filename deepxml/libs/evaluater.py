@@ -15,6 +15,19 @@ class MetricRecord:
     ps_precision: ndarray=field(default_factory=lambda: np.array(-1))
     ps_ndcg: ndarray=field(default_factory=lambda: np.array(-1))
 
+    def __format(self, x):
+        return ",".join(map(lambda z: f"{z:.2f}", x))
+
+    def __str__(self):
+        s = []
+        s.append(self.__format(self.precision))
+        s.append(self.__format(self.ndcg))
+        if self.ps_precision.sum().item() > 0:
+            s.append(self.__format(self.ps_precision))
+        if self.ps_ndcg.sum().item() > 0:
+            s.append(self.__format(self.ps_ndcg))
+        return "\n".join(s)
+
     def summary(self):
         return f"P@1 (%): {self.precision[0]*100:.2f}"
 
@@ -52,7 +65,6 @@ class Evaluater:
             k: int=5,
             filter_map=None):
         k = k if k > 0 else self.k
-        #FIXME (Check if filter map is str or nparray)
         filter_map = self._load_filter_map(filter_map)
         if issparse(_pred):
             return self._evaluate(
