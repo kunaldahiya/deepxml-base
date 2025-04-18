@@ -14,7 +14,6 @@ import os
 import math
 import torch
 import logging
-import time
 import numpy as np
 from tqdm import tqdm
 from xclib.utils.shortlist import Shortlist 
@@ -78,7 +77,7 @@ class PipelineIS(PipelineBase):
         dataset: Dataset,
         prefetch_factor: int=5,
         batch_size: int=128,
-        feature_t: str='sparse',
+        feature_t: str='sequential',
         op_feature_t: str=None,
         sampling_t: str='brute',
         num_workers: int=4,
@@ -93,7 +92,7 @@ class PipelineIS(PipelineBase):
                 used in the data loader. 
             batch_size (int, optional): Defaults to 128
                 batch size in data loader.
-            feature_t (str, optional): Defaults to 'sparse'
+            feature_t (str, optional): Defaults to 'sequential'
                 type of features.
             sampling_t (str, optional): Defaults to 'brute'.
                 sampling type (used in creating data loader)
@@ -219,11 +218,11 @@ class PipelineIS(PipelineBase):
         """
         for epoch in tqdm(range(num_epochs), desc="Epoch"):
             train_loader.dataset.step(self.memory_bank)
-            tic = time.time()
+            self.train_timer.tic()
             avg_loss = self._epoch(train_loader, *args, **kwargs)
-            toc = time.time()
+            self.train_timer.toc()
             self.logger.info(
-                f"Epoch: {epoch}, loss: {avg_loss:.6f}, time: {toc-tic:.2f} sec")
+                f"Epoch: {epoch}, loss: {avg_loss:.6f}, time: {self.train_timer.elapsed_time:.2f} sec")
             if validation_loader is not None and epoch % validation_interval == 0:
                 self.validate(validation_loader, epoch)
             self.update_order(train_loader)
@@ -352,7 +351,6 @@ class XCPipelineIS(PipelineIS):
         pass
 
     def _init_memory_bank(self, dataset: Dataset) -> None:
-        # FIXME: fix the length of the vector
         self.memory_bank = np.zeros(
             (len(dataset), self.net.repr_dims),
             dtype='float32'
@@ -372,7 +370,6 @@ class XCPipelineIS(PipelineIS):
     def fit(
         self,
         data_dir: str,
-        dataset: str,
         trn_fname: str,
         val_fname: str,
         sampling_params: Namespace,
@@ -383,12 +380,12 @@ class XCPipelineIS(PipelineIS):
         num_workers: int=4,
         shuffle: bool=True,
         normalize_features=True,
-        feature_t: str='dense',
+        feature_t: str='sequential',
         normalize_labels=False,
         validate_interval=5,
         cache_doc_representations=False,
         inference_t: str='mips',
-        surrogate_mapping=None, **kwargs
+        **kwargs
     ) -> None:
         """Train the model on the basis of given data and parameters
 
@@ -407,12 +404,7 @@ class XCPipelineIS(PipelineIS):
             normalize_labels (bool, optional): normalize labels. Defaults to False.
             validate_interval (int, optional): validate after these many epochs. 
                 Defaults to 5.
-            surrogate_mapping (_type_, optional): _description_. Defaults to None.
         """
-        """
-        TODO:
-        * Classifier initialization
-        """ 
         # Reset the logger to dump in train log file
         self.logger.addHandler(
             logging.FileHandler(os.path.join(self.result_dir, 'log_train.txt'))) 
@@ -426,8 +418,7 @@ class XCPipelineIS(PipelineIS):
             sampling_t=sampling_params.type,
             sampling_params=sampling_params,
             normalize_features=normalize_features,
-            normalize_labels=normalize_labels,
-            surrogate_mapping=surrogate_mapping)
+            normalize_labels=normalize_labels)
         self._setup(train_dataset, batch_size, num_workers)
 
         if cache_doc_representations and not trn_data:
@@ -461,8 +452,7 @@ class XCPipelineIS(PipelineIS):
                 sampling_t=sampling_params.type,
                 sampling_params=sampling_params,
                 normalize_features=normalize_features,
-                normalize_labels=normalize_labels,
-                surrogate_mapping=surrogate_mapping)
+                normalize_labels=normalize_labels)
 
         train_loader = self._create_data_loader(
             train_dataset,
@@ -482,8 +472,7 @@ class XCPipelineIS(PipelineIS):
                 mode='predict',
                 feature_t=feature_t,
                 normalize_features=normalize_features,
-                normalize_labels=normalize_labels,
-                surrogate_mapping=surrogate_mapping)
+                normalize_labels=normalize_labels)
             validation_loader = self._create_data_loader(
                 validation_dataset,
                 feature_t=feature_t,
@@ -544,7 +533,7 @@ class EmbeddingPipelineIS(PipelineIS):
         normalize_labels: bool=False,
         validate_interval: int=5,
         inference_t: str=None,
-        surrogate_mapping=None, **kwargs
+        **kwargs
     ) -> None:
         """Train the model on the basis of given data and parameters
 
@@ -562,7 +551,6 @@ class EmbeddingPipelineIS(PipelineIS):
             normalize_labels (bool, optional): normalize labels. Defaults to False.
             validate_interval (int, optional): validate after these many epochs. 
                 Defaults to 5.
-            surrogate_mapping (_type_, optional): _description_. Defaults to None.
         """
         """
         TODO:
@@ -581,8 +569,7 @@ class EmbeddingPipelineIS(PipelineIS):
             sampling_t=sampling_params.type,
             sampling_params=sampling_params,
             normalize_features=normalize_features,
-            normalize_labels=normalize_labels,
-            surrogate_mapping=surrogate_mapping)
+            normalize_labels=normalize_labels)
         train_loader = self._create_data_loader(
             train_dataset,
             batch_size=batch_size,
@@ -602,8 +589,7 @@ class EmbeddingPipelineIS(PipelineIS):
                 mode='predict',
                 feature_t=feature_t,
                 normalize_features=normalize_features,
-                normalize_labels=normalize_labels,
-                surrogate_mapping=surrogate_mapping)
+                normalize_labels=normalize_labels)
             validation_loader = self._create_data_loader(
                 validation_dataset,
                 feature_t=feature_t,

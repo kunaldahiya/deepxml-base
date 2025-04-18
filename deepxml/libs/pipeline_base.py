@@ -15,6 +15,7 @@ import logging
 import numpy as np
 from tqdm import tqdm
 import torch.utils.data
+from .timer import Timer
 from .tracking import Tracking
 from torch.utils.data import DataLoader
 from xclib.utils.matrix import SMatrix
@@ -60,10 +61,17 @@ class PipelineBase(object):
         self.result_dir = result_dir
         self.last_epoch = 0
         self.model_fname = "model"
-        self.logger = self.get_logger(name=self.model_fname)
-        self.tracking = Tracking()
         self.device = str(self.net.device)
         self.setup_amp(use_amp)
+        self.setup_tracking()
+
+    def setup_tracking(self):
+        "Initialize logger, tracker and timers"
+        self.train_timer = Timer()
+        self.predict_timer = Timer()
+        self.val_timer = Timer()
+        self.tracking = Tracking()
+        self.logger = self.get_logger(name=self.model_fname)
 
     def setup_amp(self, use_amp: bool) -> None:
         """Set up scaler for mixed precision training
@@ -115,7 +123,7 @@ class PipelineBase(object):
             mode='train',
             normalize_features=True,
             normalize_labels=True,
-            feature_t='sparse',
+            feature_t='sequential',
             max_len=-1,
             **kwargs) -> DatasetBase:
             return construct_dataset(
@@ -136,7 +144,7 @@ class PipelineBase(object):
         dataset: DatasetBase,
         prefetch_factor: int=5,
         batch_size: int=128,
-        feature_t: str='sparse',
+        feature_t: str='sequential',
         op_feature_t: str=None,
         sampling_t: str='brute',
         num_workers: int=4,
@@ -151,7 +159,7 @@ class PipelineBase(object):
                 used in the data loader. 
             batch_size (int, optional): Defaults to 128
                 batch size in data loader.
-            feature_t (str, optional): Defaults to 'sparse'
+            feature_t (str, optional): Defaults to 'sequential'
                 type of features.
             sampling_t (str, optional): Defaults to 'brute'.
                 sampling type (used in creating data loader)
@@ -327,13 +335,15 @@ class PipelineBase(object):
             * avoid recomputation of intermediate features
         """
         for epoch in tqdm(range(num_epochs), desc="Epoch"):
-            tic = time.time()
+            self.train_timer.tic()
             avg_loss = self._step(train_loader)
-            toc = time.time()
+            self.train_timer.toc()
             self.logger.info(
-                f"Epoch: {epoch}, loss: {avg_loss:.6f}, time: {toc-tic:.2f} sec")
+                f"Epoch: {epoch}, loss: {avg_loss:.6f}, time: {self.train_timer.elapsed_time:.2f} sec")
             if validation_loader is not None and epoch % validation_interval == 0:
+                self.val_timer.tic()
                 self.validate(validation_loader, epoch)
+                self.val_timer.toc()
         self.save_checkpoint(epoch+1)
 
     @torch.no_grad()
@@ -390,7 +400,7 @@ class PipelineBase(object):
         normalize_features=True,
         normalize_labels=False,
         validate_interval=5,
-        surrogate_mapping=None, **kwargs
+        **kwargs
     ) -> None:
         """Train the model on the basis of given data and parameters
 
@@ -408,7 +418,6 @@ class PipelineBase(object):
             normalize_labels (bool, optional): normalize labels. Defaults to False.
             validate_interval (int, optional): validate after these many epochs. 
                 Defaults to 5.
-            surrogate_mapping (_type_, optional): _description_. Defaults to None.
         """
         # Reset the logger to dump in train log file
         self.logger.addHandler(
@@ -421,8 +430,7 @@ class PipelineBase(object):
             mode='train',
             feature_t=feature_t,
             normalize_features=normalize_features,
-            normalize_labels=normalize_labels,
-            surrogate_mapping=surrogate_mapping)
+            normalize_labels=normalize_labels)
         train_loader = self._create_data_loader(
             train_dataset,
             batch_size=batch_size,
@@ -439,8 +447,7 @@ class PipelineBase(object):
                 mode='predict',
                 feature_t=feature_t,
                 normalize_features=normalize_features,
-                normalize_labels=normalize_labels,
-                surrogate_mapping=surrogate_mapping)
+                normalize_labels=normalize_labels)
             validation_loader = self._create_data_loader(
                 validation_dataset,
                 feature_t=feature_t,
@@ -448,6 +455,9 @@ class PipelineBase(object):
                 num_workers=num_workers)
         self._fit(train_loader, validation_loader,
                   num_epochs, validate_interval)
+        self.logger.info(f"Train time (sec): {self.train_timer.elapsed_time}") 
+        self.logger.info(f"Val time (sec): {self.val_timer.elapsed_time}") 
+        self.logger.info(f"Model Size (MB): {self.model_size}") 
 
     @torch.no_grad()
     def _predict(
@@ -491,7 +501,7 @@ class PipelineBase(object):
             normalize_features: bool=True,
             normalize_labels: bool=False,
             k: int=100,
-            feature_t: str='sparse'
+            feature_t: str='sequential'
             ) -> spmatrix: 
         """Make predictions for given file
 
@@ -503,7 +513,7 @@ class PipelineBase(object):
             batch_size (int, optional): Batch size while inferring. Defaults to 128.
             normalize_features (bool, optional): Normalize features. Defaults to True.
             k (int, optional): consider top k predictions.. Defaults to 100.
-            feature_t (str, optional): feature type. Defaults to 'sparse'.
+            feature_t (str, optional): feature type. Defaults to 'sequential'.
 
         Returns:
             spmatrix: predictions for the given dataset
@@ -524,10 +534,10 @@ class PipelineBase(object):
             feature_t=feature_t,
             batch_size=batch_size,
             num_workers=num_workers)
-        tic = time.time()
+        self.predict_timer.tic()
         predicted_labels = self._predict(data_loader, k)
-        toc = time.time()
-        avg_time = (toc - tic) * 1000 / len(dataset)
+        self.predict_timer.toc()
+        avg_time = self.predict_timer.elapsed_time * 1000 / len(dataset)
         self.logger.info(f"Avg. inference time: {avg_time:.2f} msec")
         return predicted_labels
 
@@ -590,7 +600,7 @@ class PipelineBase(object):
         num_workers: int = 6,
         normalize: bool = False,
         fname_out: str = None,
-        feature_t='sparse', 
+        feature_t='sequential', 
         **kwargs
     ) -> np.ndarray:
         """Encode given data points
@@ -607,7 +617,7 @@ class PipelineBase(object):
             num_workers (int, optional): number of workers. Defaults to 6.
             normalize (bool, optional): normalize features. Defaults to False.
             fname_out (str, optional): dump features to this file. Defaults to None.
-            feature_t (str, optional): type of features. Defaults to 'sparse'.
+            feature_t (str, optional): type of features. Defaults to 'sequential'.
 
         Returns:
             ndarray: numpy array containing the embeddings 
