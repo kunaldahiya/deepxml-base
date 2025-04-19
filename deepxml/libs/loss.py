@@ -238,7 +238,6 @@ class BCEWithLogitsLoss(_Loss):
 class TripletMarginLossOHNM(_Loss):
     """ Triplet Margin Loss with Online Hard Negative Mining
     * Applies loss using the hardest negative in the mini-batch
-    * Assumes diagonal entries are ground truth
     """
 
     def __init__(

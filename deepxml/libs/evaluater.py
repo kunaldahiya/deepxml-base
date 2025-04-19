@@ -16,7 +16,7 @@ class MetricRecord:
     ps_ndcg: ndarray=field(default_factory=lambda: np.array(-1))
 
     def __format(self, x):
-        return ",".join(map(lambda z: f"{z:.2f}", x))
+        return ",".join(map(lambda z: f"{z*100:.2f}", x))
 
     def __str__(self):
         s = []

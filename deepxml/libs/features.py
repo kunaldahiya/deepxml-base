@@ -68,7 +68,7 @@ class SeqFeatures(SparseFeatures):
             data_dir: str,
             fname: str,
             X: Optional[Tuple[ndarray, ndarray]]=None,
-            max_len:int =-1) -> None:
+            max_len: int=-1) -> None:
         super().__init__(data_dir, fname, X)
         self.max_len = max_len
 
