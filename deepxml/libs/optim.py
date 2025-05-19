@@ -3,6 +3,10 @@ from argparse import Namespace
 import torch
 import transformers
 
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning) 
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 
 def _get_no_decay(nd):
     if nd is None:
