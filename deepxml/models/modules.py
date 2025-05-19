@@ -1,7 +1,7 @@
 import re
 import json
 import torch.nn as nn
-from ._modules import MODS
+from .module_factory import ModuleFactory
 
 
 def parse_json(file, ARGS):
@@ -12,7 +12,7 @@ def parse_json(file, ARGS):
     return json.loads(schema)
 
 
-def _construct_module(key, args, MODS=MODS):
+def _construct_module(key, args, MODS=ModuleFactory):
     # TODO: Check for extendibility
     try:
         return MODS[key](**args)
@@ -20,7 +20,7 @@ def _construct_module(key, args, MODS=MODS):
         raise NotImplementedError("Unknown module!!")
 
 
-def construct_module(config, MODS=MODS):
+def construct_module(config, MODS=ModuleFactory):
     if len(config) == 0:
         return _construct_module('identity', {}, MODS)
     elif len(config) == 1:
