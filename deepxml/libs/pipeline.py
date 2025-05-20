@@ -478,11 +478,10 @@ class XCPipelineIS(PipelineIS):
                 feature_t=feature_t,
                 batch_size=batch_size,
                 num_workers=num_workers)
-        # self._fit(train_loader, validation_loader,
-        #           num_epochs, validate_interval,
-        #           cached=cache_doc_representations)
+        self._fit(train_loader, validation_loader,
+                  num_epochs, validate_interval,
+                  cached=cache_doc_representations)
         self.post_process_for_inference(inference_t)
-        self.validate(validation_loader)
 
     def get_label_representations(self) -> Union[Tensor, ndarray]:
         lbl_repr = self.net.classifier.get_weights()
